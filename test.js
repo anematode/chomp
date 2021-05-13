@@ -6,6 +6,8 @@ function hashPosition (position) {
 
   for (let i = 0, value; i < position.length; i++) {
     value = position[i]
+    if (value === 0) break
+
     h1 = Math.imul(h1 ^ value, 2654435761);
     h2 = Math.imul(h2 ^ value, 1597334677);
   }
@@ -34,7 +36,7 @@ function getPositionDims (position) {
 
 function getPositionSquareCount (position) {
   let sum = 0
-  for (let i = 0; i < position.length; ++i {
+  for (let i = 0; i < position.length; ++i) {
     sum += position[i]
   }
   return sum
@@ -201,26 +203,108 @@ function* positionsWithNTiles(n)  {
   }
 }
 
-function* positionsStartingFromPositionWithNTiles (position, n) {
-  let positionSquareCount = getPositionSquareCount(position)
+// Remember that row = 0, col = 0 is the poisoned square
+function cutPosition (position, row, col) {
+  let clone = position.slice()
 
-  if (n.length > positionSquareCount) {
-    return
+  // This corresponds to setting all the values at and above index *row* to min(val, col)
+  for (let i = row; i < position.length; ++i) {
+    clone[i] = Math.min(clone[i], col)
   }
 
-  const currentPotentialPosition = []
+  return clone
+}
 
-  // The strategy is to recursively iterate through all output_position[0] starting from position[0] down to 0, keeping
-  // track of how many squares have already been used up, and comparing at each point to position[n]. We need to
-  // allocate a certain minimum of tiles each time or we will end up with excess squares. If we are finding the value
-  // of output_position[i] we need to know
+function getAllCuts (position, ret) {
+  for (let i = 0; i < position.length; ++i) {
+    let colWidth = position[i]
 
-  function  (i) {
-
+    for (let j = 0; j < colWidth; ++j) {
+      ret(i, j)
+    }
   }
 }
 
-// Could do via memoization, but... eh...
-function* positionsStartingFrom (position) {
-  // We start from the initial position and generate all
+function getAllCuttedPositions (position, ret) {
+  getAllCuts(pos, (x, y) => {
+    let cuttedPosition = cutPosition(pos, x, y)
+
+    ret(cuttedPosition)
+  })
+}
+
+// Size of the current search space
+let height = 3, width = 8
+
+// Copied from my C++ code
+function getPositionsWithNTiles(n, p, ret, y=height, h=width) {
+  let dMin = Math.max(Math.floor(n / y), 0)
+  let dMax = Math.min(n, h)
+
+  for (let d = dMin; d <= dMax; ++d) {
+    p[height - y] = d
+
+    if (y === 1 || d === n) {
+      ret(p)
+    } else {
+      getPositionsWithNTiles(n - d, p, ret, y-1, d)
+    }
+  }
+
+  p[height - y] = 0
+}
+
+function getPositions (ret, maxWidth = width, maxHeight = height) {
+  height = maxHeight
+  width = maxWidth
+
+  const positionStore = []
+  for (let n = 1; n <= maxWidth * maxHeight; ++n) {
+    getPositionsWithNTiles(n, positionStore, ret)
+  }
+}
+
+function constructPositionMap (maxWidth=8, maxHeight=3) {
+  setDataOf([], { isWinning: true, dte: 0 })
+
+  getPositions(pos => {
+    let isWinning = false
+    let maxWinningDTE = 0
+    let minLosingDTE = Infinity
+
+    getAllCuts(pos, (x, y) => {
+      let cuttedPosition = cutPosition(pos, x, y)
+      let positionData = getDataOf(cuttedPosition)
+
+      if (!positionData.isWinning) {
+        isWinning = true
+        minLosingDTE = Math.min(minLosingDTE, positionData.dte)
+      } else {
+        maxWinningDTE = Math.max(maxWinningDTE, positionData.dte)
+      }
+    })
+
+    setDataOf(pos, {isWinning, dte: (isWinning ? minLosingDTE : maxWinningDTE) + 1 })
+  }, maxWidth, maxHeight)
+}
+
+constructPositionMap(8, 8)
+
+// Helper class?
+class GamePosition {
+  constructor (arr) {
+    this.arr = arr
+  }
+
+  data () {
+    return getDataOf(this.arr)
+  }
+
+  isWinning () {
+    return this.data().isWinning
+  }
+
+  getCuts () {
+    return Arr
+  }
 }
