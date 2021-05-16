@@ -226,10 +226,26 @@ function getAllCuts (position, ret) {
 }
 
 function getAllCuttedPositions (position, ret) {
-  getAllCuts(pos, (x, y) => {
-    let cuttedPosition = cutPosition(pos, x, y)
+  getAllCuts(position, (x, y) => {
+    let cuttedPosition = cutPosition(position, x, y)
 
-    ret(cuttedPosition)
+    ret(x, y, cuttedPosition)
+  })
+}
+
+function getAllWinningCuts (position, ret) {
+  getAllCuttedPositions(position, (x, y, pos) => {
+    if (!getDataOf(pos).isWinning) {
+      ret(x, y, pos)
+    }
+  })
+}
+
+function getAllLosingCuts (position, ret) {
+  getAllCuttedPositions(position, (x, y, pos) => {
+    if (getDataOf(pos).isWinning) {
+      ret(x, y, pos)
+    }
   })
 }
 
@@ -272,6 +288,9 @@ function constructPositionMap (maxWidth=8, maxHeight=3) {
     let maxWinningDTE = 0
     let minLosingDTE = Infinity
 
+    let winningCuts = 0
+    let losingCuts = 0
+
     getAllCuts(pos, (x, y) => {
       let cuttedPosition = cutPosition(pos, x, y)
       let positionData = getDataOf(cuttedPosition)
@@ -279,16 +298,16 @@ function constructPositionMap (maxWidth=8, maxHeight=3) {
       if (!positionData.isWinning) {
         isWinning = true
         minLosingDTE = Math.min(minLosingDTE, positionData.dte)
+        winningCuts++
       } else {
         maxWinningDTE = Math.max(maxWinningDTE, positionData.dte)
+        losingCuts++
       }
     })
 
-    setDataOf(pos, {isWinning, dte: (isWinning ? minLosingDTE : maxWinningDTE) + 1 })
+    setDataOf(pos, {isWinning, dte: (isWinning ? minLosingDTE : maxWinningDTE) + 1, winningCuts, losingCuts })
   }, maxWidth, maxHeight)
 }
-
-constructPositionMap(8, 8)
 
 // Helper class?
 class GamePosition {
@@ -300,11 +319,196 @@ class GamePosition {
     return getDataOf(this.arr)
   }
 
+  toString () {
+    return prettyPrintPosition(this.arr)
+  }
+
+  toCompactString () {
+    return this.arr.join(', ')
+  }
+
   isWinning () {
     return this.data().isWinning
   }
 
-  getCuts () {
-    return Arr
+  dte () {
+    return this.data().dte
+  }
+
+  getWinningCut () {
+    let ret
+
+    getAllWinningCuts(this.arr, (x, y, cut) => {
+      ret = { x, y, cut }
+    })
+
+    return ret
+  }
+
+  getBestWinningCut () {
+    let ret
+    let shortestDelay = Infinity
+
+    getAllWinningCuts(this.arr, (x, y, cut) => {
+      cut = new GamePosition(cut)
+
+      let dte = cut.dte()
+      if (dte < shortestDelay) {
+        shortestDelay = dte
+        ret = { x, y, cut }
+      }
+    })
+
+    return ret
+  }
+
+  getLongestDelayedCut () {
+    let ret
+    let longestDelay = -1
+
+    getAllLosingCuts(this.arr, (x, y, cut) => {
+      cut = new GamePosition(cut)
+
+      let dte = cut.dte()
+      if (dte > longestDelay) {
+        longestDelay = dte
+        ret = { x, y, cut }
+      }
+    })
+
+    return ret
+  }
+
+  cutAt (x, y) {
+    return new GamePosition(cutPosition(this.arr, x, y))
   }
 }
+
+function generateRectangle (rows, cols) {
+  let arr = []
+
+  for (let i = 0; i < rows; ++i) arr.push(cols)
+
+  return arr
+}
+
+function stringifyDistribution (arr, startIndex=0) {
+  // n in (0 ... arr.length): ... but we trim arr to the last nonzero element
+
+  let index = arr.length
+  while (index-- && !arr[index]);
+
+  arr = arr.slice(0, index + 1)
+
+  return `n in (${startIndex} ... ${arr.length + startIndex - 1}): ${arr.join(', ')}`
+}
+
+function analysis () {
+  cow = ""
+
+  let totalPositions = 0
+  let winningPositions = 0
+  let losingPositions = 0
+  let winningCuts = 0
+
+  let tileCountDistribution = Array(width * height + 1).fill(0)
+  let winningTileCountDistribution = Array(width * height + 1).fill(0)
+  let losingTileCountDistribution = Array(width * height + 1).fill(0)
+  let winningCutDistribution = Array(10).fill(0)
+  let winningCutDistributions = Array(width * height + 1).fill(0).map(d => Array(10).fill(0))
+  let maxDistancesToEndDistribution = Array(width * height + 1).fill(0)
+
+  getPositions(pos => {
+    pos = new GamePosition(pos)
+    let sqCount = getPositionSquareCount(pos.arr)
+
+    const data = pos.data()
+
+    if (data.isWinning) {
+      winningPositions++
+
+      winningTileCountDistribution[sqCount]++
+    } else {
+      losingPositions++
+      losingTileCountDistribution[sqCount]++
+    }
+
+    winningCuts += data.winningCuts
+    winningCutDistribution[data.winningCuts]++
+    winningCutDistributions[sqCount][data.winningCuts]++
+    maxDistancesToEndDistribution[sqCount] = Math.max(maxDistancesToEndDistribution[sqCount], data.dte)
+
+    tileCountDistribution[sqCount]++
+
+    totalPositions++
+  })
+
+  output ("Total positions: ", totalPositions)
+  output ("Winning positions: ", winningPositions)
+  output ("Losing positions: ", losingPositions)
+
+  output(`Positions with n tiles, `, stringifyDistribution(tileCountDistribution))
+  output(`Winning positions with n tiles, `, stringifyDistribution(winningTileCountDistribution))
+  output(`Losing positions with n tiles, `, stringifyDistribution(losingTileCountDistribution))
+
+  output(`(# winning cuts)/(# winning positions): ${winningCuts / winningPositions}`)
+  output(`# positions with n winning cuts, `, stringifyDistribution(winningCutDistribution))
+
+  for (let k = 1; k < width * height + 1; ++k) {
+    output(`# positions with ${k} tiles and n winning cuts, `, stringifyDistribution(winningCutDistributions[k]))
+  }
+
+  output(`Maximum distance to end among positions with n tiles, `, stringifyDistribution(maxDistancesToEndDistribution))
+
+}
+
+let cow = ""
+
+function output (...args) {
+  cow += args.join(' ') + '\n'
+}
+
+function playOptimalGame (position) {
+  position = new GamePosition(position)
+
+  output (`Beginning from position ${position.toCompactString()}`)
+  let player = "Player 1"
+
+  let i = 0
+
+  while (true) {
+    let { isWinning, dte } = position.data()
+    if (dte === 0 ) return
+
+    let cutX, cutY
+
+    output (`Position ${position.toCompactString()} is ${isWinning ? "winning" : "losing"}, with max distance to game end of ${dte}.`)
+    output (position.toString())
+    if (isWinning) {
+      let { cut, x, y } = position.getBestWinningCut()
+
+      cutX = x
+      cutY = y
+    } else {
+      let { cut, x, y } = position.getLongestDelayedCut()
+
+      cutX = x
+      cutY = y
+    }
+
+    output (`${player} cuts the position at (${cutX + 1}, ${cutY + 1}).`)
+
+    position = position.cutAt(cutX, cutY)
+
+    if (player === "Player 1") player = "Player 2"
+    if (++i > 20) break
+  }
+
+  output (player + " wins.")
+}
+
+console.time("compute")
+constructPositionMap(13, 13)
+console.timeEnd("compute")
+
+analysis()
