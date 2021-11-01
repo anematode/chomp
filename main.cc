@@ -11,10 +11,8 @@ int main () {
 	Chomp::PositionFormatterOptions::set_default({ .tile_size=1, .sep=0 });
 	auto p = Chomp::Position::starting_rectangle(6, 6);
 
-	std::cout << p;
 	std::cout << p.list() << '\n';
 	p = p.cut({ 5, 5 });
-	std::cout << p;
 	std::cout << p.list() << '\n';
 	p = p.cut({ 4, 5 });
 	std::cout << p;

@@ -23,7 +23,7 @@
 
 namespace Chomp {
 	// Globally defined max height
-	constexpr int MAX_HEIGHT = 5;
+	constexpr int MAX_HEIGHT = 25;
 
 	// Options for formatting to string
 	struct PositionFormatterOptions
@@ -70,24 +70,14 @@ namespace Chomp {
 
 	/**
 	 * Stores a given board position as an array of the number of tiles in each row, from bottom to top
-	 * @tparam max_height The tallest allowed board
+	 * @tparam MAX_HEIGHT The tallest allowed board
 	 */
 	class Position {
 	public:
+		// Number of squares per row
 		int rows[MAX_HEIGHT];
-		int cols[MAX_HEIGHT];
-
-		/**
-		 * #X
-		 * ##X
-		 * ####X
-		 *
-		 * rows: 0 1 2
-		 * cols: 4 2 1
-		 * corner_count: 3
-		 */
-
-		int corner_count; // The number of corners
+		// Number of non-zero rows
+		int height;
 
 		Position();
 		Position(const std::initializer_list<int>&);
@@ -133,95 +123,22 @@ namespace Chomp {
 		default_formatter_options = opts;
 	}
 
-	//
-	// #
-	// ##
-	// ##XXX
-	// #####
-	// ######
-
-	// Create a corner, copy a corner, remove a corner
-	// Case A:
-	// If a corner (r, c) is within (row, col), i.e. r >= row and c >= col, we remove it
-	// Case B:
-	// If a corner (r, c) is below row-1 or to the left of c-1, we copy it
-	// Case C:
-	// Remaining cases: r=row and c=col, r=row and c < col, r=row and c > col, r>row and c=col, r<row and c=col
-	// Case 1: r=row and c=col
-	// Create corner at (row-1,c) if there is no corner with that row, and at (r,col+1) if there is no corner with that col
-	// Case 2: r=row and c<col
-	// Create corner at (row-1,c) if there is no corner with that row
-	// Case 3: r=row and c>col
-	// Cut is out of bounds; do nothing
-	// Case 4: r>row and c=col
-	// Cut is out of bounds; do nothing
-	// Case 5: r<row and c=col
-	// Create corner at (r,col+1) if there is no corner with that col
-
 	Position Position::cut(int row, int col) const {
 		Position p;
 
-		int write_index = 0;
-		int cr, cc, i = 0;
-
-		for (; i < corner_count; ++i) {
-			cr = rows[i];
-			cc = cols[i];
-
-			if (cr < row) {
-				// Copy it (Case A)
-				p.rows[write_index] = cr;
-				p.cols[write_index] = cc;
-				write_index++;
-			} else {
-				break;
-			}
+		for (int i = 0; i < row; ++i) {
+			p.rows[i] = rows[i];
 		}
 
-		// Now cr == row or cr > row
-		if (cc >= col) {
-			// There is something to cut. Find first and last corners within the zone
-			int first_corner = i;
-
-			for (; i < corner_count && cols[i] >= col; ++i);
-			int last_corner = i - 1;
-
-			// First corner determines whether we put a new corner at (row-1, cols[first_corner])
-			// We do so if there are no squares to the right of the new corner; in other words, whether rows[first_corner-1] == row-1
-			// Last corner determines whether we put a new corner at (rows[last_corner], col-1)
-			// We do so if there are no squares above the new corner; in other words, whether cols[last_corner+1] == col-1
-			// If row-1 or col-1 is -1, we don't put a corner
-			// If any of these queries are out of bounds, we say there are squares there if the other value in the pair is not 0
-
-			// First corner
-			if ((row != 0) && ((first_corner == 0) || rows[first_corner - 1] != row - 1)) {
-				// need to add corner
-				p.rows[write_index] = row-1;
-				p.cols[write_index] = cols[first_corner];
-
-				write_index++;
+		if (col == 0) {
+			p.height = row;
+		} else {
+			for (int i = row; i < height; ++i) {
+				p.rows[i] = std::min(col, rows[i]);
 			}
 
-			if ((col != 0) && ((last_corner == corner_count - 1) || cols[last_corner + 1] != col - 1)) {
-				// need to add corner
-				p.rows[write_index] = rows[last_corner];
-				p.cols[write_index] = col-1;
-
-				write_index++;
-			}
+			p.height = height;
 		}
-
-		// Copy the rest
-		for (; i < corner_count; ++i) {
-			cr = rows[i];
-			cc = cols[i];
-
-			p.rows[write_index] = cr;
-			p.cols[write_index] = cc;
-			write_index++;
-		}
-
-		p.corner_count = write_index;
 
 		return p;
 	}
@@ -230,8 +147,8 @@ namespace Chomp {
 		return cut(c.first, c.second);
 	}
 
-	/*template <int max_height>
-	void PositionSet<max_height>::hash_positions(int max_squares, int bound_width, int bound_height) {
+	/*template <int MAX_HEIGHT>
+	void PositionSet<MAX_HEIGHT>::hash_positions(int max_squares, int bound_width, int bound_height) {
 		Position p;
 		p.make_empty();
 
@@ -243,15 +160,12 @@ namespace Chomp {
 	}*/
 
 	uint64_t hash_position(const Position& p) {
-		// It isn't the greatest hash function, but it works. The hash function *is* dependent on max_height
+		// It isn't the greatest hash function, but it works. The hash function *is* dependent on MAX_HEIGHT
 		const int* rows = p.rows;
-		const int* cols = p.cols;
 
 		uint64_t hash = 0;
 		for (int i = 0; i < MAX_HEIGHT; ++i) {
 			hash += rows[i];
-			hash *= 179424673L;
-			hash += cols[i];
 			hash *= 179424673L;
 		}
 
@@ -263,24 +177,24 @@ namespace Chomp {
 	}
 
 	void Position::make_empty() {
-		corner_count = 0;
+		height = 0;
 	}
 
 	// copy constructor
 	Position::Position(const Position& p) {
-		corner_count = p.corner_count;
-		for (int i = 0; i < corner_count; ++i) {
+		height = p.height;
+		for (int i = 0; i < height; ++i) {
 			rows[i] = p.rows[i];
-			cols[i] = p.cols[i];
 		}
 	}
 
 	Position Position::starting_rectangle(int width, int height) {
 		Position p;
 
-		p.corner_count = 1;
-		p.rows[0] = height - 1;
-		p.cols[0] = width - 1;
+		if (width < 0) throw new std::runtime_error(FILE_LINE"Width cannot be negative");
+
+		std::fill_n(p.rows, std::min(height, MAX_HEIGHT), width);
+		p.height = height;
 
 		return p;
 	}
@@ -289,7 +203,7 @@ namespace Chomp {
 		return hash_position(*this);
 	}
 
-	/*int Position::square_count() const {
+	int Position::square_count() const {
 		int sum = 0;
 		for (int i = 0; i < height; ++i)
 			sum += rows[i];
@@ -307,37 +221,41 @@ namespace Chomp {
 		}
 
 		return true;
-	}*/
+	}
 
-	/*Position::Position(const std::initializer_list<int>& l) {
-		int h = std::min(max_height, static_cast<int>(l.size()));
+	Position::Position(const std::initializer_list<int>& l) {
+		int h = std::min(MAX_HEIGHT, static_cast<int>(l.size()));
 
 		// Is there a nicer way to do this?
 		std::copy(l.begin(), l.begin() + h, rows);
 
-		for (int i = h; i < max_height; ++i) rows[i] = 0;
+		for (int i = h; i < MAX_HEIGHT; ++i) rows[i] = 0;
 
 		if (!is_legal()) throw std::runtime_error(FILE_LINE"Invalid position in initializer list");
 		normalize_height();
-	}*/
+	}
+
+	void Position::normalize_height() {
+		// Set the height value to the appropriate value based on the rows array
+		int i = 0;
+		for (; i < MAX_HEIGHT && rows[i]; ++i);
+
+		height = i;
+	}
 
 	int Position::get_height() const {
-		return rows[corner_count - 1] + 1;
+		return height;
 	}
 
 	int Position::get_width() const {
-		return cols[0] + 1;
+		return rows[0];
 	}
 
 	std::string Position::list() const {
 		std::stringstream ss;
 
-		ss << "R ";
-		for (int i = 0; i < corner_count; ++i)
+		for (int i = 0; i < height; ++i)
 			ss << rows[i] << ' ';
-		ss << "\nC ";
-		for (int i = 0; i < corner_count; ++i)
-			ss << cols[i] << ' ';
 
 		return ss.str();
 	}
@@ -384,15 +302,8 @@ namespace Chomp {
 			return marker;
 		};
 
-		int corner_index = 0;
-		int height = get_height();
-
 		for (int i = 0; i < height; ++i) {
-			if (corner_index < corner_count && rows[corner_index] < i) {
-				corner_index++;
-			}
-
-			int cnt = cols[corner_index] + 1;
+			int cnt = rows[i];
 			vector<string> out_row;
 
 			for (int j = 0; j < cnt; ++j)
@@ -452,17 +363,17 @@ namespace Chomp {
 	/**
 	 * Get all positions with exactly n tiles, bounded by bound_width and bound_height (their dimensions are within those
 	 * bounds)
-	 * @tparam max_height
+	 * @tparam MAX_HEIGHT
 	 * @tparam Lambda Type of callback function
 	 * @param n Number of tiles
 	 * @param callback Callback function accepting a single parameter, the position (as a const ref)
 	 * @param bound_width -1 if unbounded; otherwise, the bound on the width
-	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by max_height if necessary
+	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
 	 */
-	/*template <typename Lambda>
+	template <typename Lambda>
 	void get_positions_with_n_tiles(int n, Lambda callback, int bound_width=-1, int bound_height=-1) {
 		static_assert(std::is_invocable_v<Lambda, const Position&>,
-						FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts Positions with the same max_height");
+						FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts Positions with the same MAX_HEIGHT");
 
 		if (n < 0)
 			throw new std::runtime_error(FILE_LINE"n must be a positive integer");
@@ -479,7 +390,7 @@ namespace Chomp {
 		// tiles to place is (bound_height - r) * v and the minimum number is 0. If we have a certain number of remaining
 		// tiles to place, these bounds give us information on how many we should try.
 
-		Position<max_height> p; // position to manipulate and be passed to the lambda
+		Position p; // position to manipulate and be passed to the lambda
 		p.make_empty();
 		int* rows = p.rows;
 
@@ -530,24 +441,24 @@ namespace Chomp {
 				i = std::min(i + 1, bound_height - 1);
 			}
 		}
-	}*/
+	}
 
 	/**
 	 * Get all positions with n tiles or less, bounded by bound_width and bound_height (their dimensions are within those
 	 * bounds). The order in which the positions are given is guaranteed to be in order of number of squares.
-	 * @tparam max_height
+	 * @tparam MAX_HEIGHT
 	 * @tparam Lambda Type of callback function
 	 * @param n Number of tiles
 	 * @param callback Callback function accepting a single parameter, the position (as a const ref)
 	 * @param bound_width -1 if unbounded; otherwise, the bound on the width
-	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by max_height if necessary
+	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
 	 */
-	/*template <int max_height, typename Lambda>
+	template <typename Lambda>
 	void get_positions_with_n_or_less_tiles(int n, Lambda callback, int bound_width=-1, int bound_height=-1) {
 		for (int i = 0; i < n; ++i) {
-			get_positions_with_n_tiles<max_height>(i, callback, bound_width, bound_height);
+			get_positions_with_n_tiles(i, callback, bound_width, bound_height);
 		}
-	}*/
+	}
 }
 
 #endif //CHOMP_POSITION_H
