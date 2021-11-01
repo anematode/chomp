@@ -7,6 +7,7 @@
 
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
+#define INT_MAX std::numeric_limits<int>::max()
 
 // Get the file and line number
 #define FILE_LINE __FILE__ ":" STR(__LINE__) ": "
@@ -35,8 +36,8 @@ namespace Chomp {
 		int tile_size = -1;
 
 		// Minimum number of tiles to display in each direction
-		int min_width = 1;
-		int min_height = 1;
+		int min_width = 3;
+		int min_height = 3;
 
 		// Separation in newlines and spaces, respectively, between tiles in each direction
 		int horizontal_sep = 1;
@@ -248,6 +249,7 @@ namespace Chomp {
 	}
 
 	int Position::get_width() const {
+		if (height == 0) return 0;
 		return rows[0];
 	}
 
@@ -302,22 +304,31 @@ namespace Chomp {
 			return marker;
 		};
 
-		for (int i = 0; i < height; ++i) {
-			int cnt = rows[i];
+		for (int i = 0; i < print_height; ++i) {
 			vector<string> out_row;
 
-			for (int j = 0; j < cnt; ++j)
-				out_row.push_back(filled_tile);
-			for (int j = cnt; j < print_width; ++j)
+			int cnt = 0;
+
+			if (i < height) {
+				cnt = rows[i];
+
+				for (int j = 0; j < cnt; ++j) {
+					out_row.push_back(filled_tile);
+				}
+			}
+
+			for (int j = cnt; j < print_width; ++j) {
 				out_row.push_back(empty_tile);
+			}
 
 			out.insert(out.begin(), out_row);
 		}
 
 		// Add row/col markers if desired
 		if (opts.show_labels) {
-			for (int row = 0; row < print_height; ++row)
+			for (int row = 0; row < print_height; ++row) {
 				out[row].insert(out[row].begin(), get_row_marker(print_height - row - 1)); // invert the labels
+			}
 
 			vector<string> first_row; // new first row
 			first_row.push_back(string(tile_area, ' ')); // spacer
