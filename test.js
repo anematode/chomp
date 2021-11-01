@@ -417,6 +417,8 @@ function analysis () {
   let winningCutDistribution = Array(10).fill(0)
   let winningCutDistributions = Array(width * height + 1).fill(0).map(d => Array(10).fill(0))
   let maxDistancesToEndDistribution = Array(width * height + 1).fill(0)
+  let distancesToEndSum = Array(width * height + 1).fill(0)
+  let distancesToEnd = 0
 
   getPositions(pos => {
     pos = new GamePosition(pos)
@@ -437,13 +439,15 @@ function analysis () {
     winningCutDistribution[data.winningCuts]++
     winningCutDistributions[sqCount][data.winningCuts]++
     maxDistancesToEndDistribution[sqCount] = Math.max(maxDistancesToEndDistribution[sqCount], data.dte)
+    distancesToEndSum[sqCount] += data.dte
+    distancesToEnd += data.dte
 
     tileCountDistribution[sqCount]++
 
     totalPositions++
   })
 
-  output ("Total positions: ", totalPositions)
+  /*output ("Total positions: ", totalPositions)
   output ("Winning positions: ", winningPositions)
   output ("Losing positions: ", losingPositions)
 
@@ -456,10 +460,11 @@ function analysis () {
 
   for (let k = 1; k < width * height + 1; ++k) {
     output(`# positions with ${k} tiles and n winning cuts, `, stringifyDistribution(winningCutDistributions[k]))
-  }
+  }*/
 
   output(`Maximum distance to end among positions with n tiles, `, stringifyDistribution(maxDistancesToEndDistribution))
-
+  output(`Average distance to end among all positions: `, distancesToEnd / totalPositions)
+  output(`Average distance to end among positions with n tiles, `, stringifyDistribution(distancesToEndSum.map((v, i) => v / tileCountDistribution[i])))
 }
 
 let cow = ""
@@ -508,7 +513,7 @@ function playOptimalGame (position) {
 }
 
 console.time("compute")
-constructPositionMap(13, 13)
+constructPositionMap(50, 5)
 console.timeEnd("compute")
 
 analysis()
