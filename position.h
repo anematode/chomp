@@ -101,8 +101,8 @@ namespace Chomp {
 		std::string to_string(PositionFormatterOptions=default_formatter_options) const;
 		std::string list() const;
 
-		int getHeight() const;
-		int getWidth() const;
+		int get_height() const;
+		int get_width() const;
 
 		int square_count() const;
 		uint64_t hash() const;
@@ -321,11 +321,11 @@ namespace Chomp {
 		normalize_height();
 	}*/
 
-	int Position::getHeight() const {
+	int Position::get_height() const {
 		return rows[corner_count - 1] + 1;
 	}
 
-	int Position::getWidth() const {
+	int Position::get_width() const {
 		return cols[0] + 1;
 	}
 
@@ -358,8 +358,8 @@ namespace Chomp {
 		string empty_tile = string(tile_area, opts.empty_char);
 		string filled_tile = string(tile_area, opts.tile_char);
 
-		int print_width = max(opts.min_width, getWidth());
-		int print_height = max(opts.min_height, getHeight());
+		int print_width = max(opts.min_width, get_width());
+		int print_height = max(opts.min_height, get_height());
 
 		// List of rows, top to bottom
 		vector<vector<string>> out;
@@ -385,7 +385,7 @@ namespace Chomp {
 		};
 
 		int corner_index = 0;
-		int height = getHeight();
+		int height = get_height();
 
 		for (int i = 0; i < height; ++i) {
 			if (corner_index < corner_count && rows[corner_index] < i) {
