@@ -8,22 +8,25 @@
 #include <algorithm>
 
 int main () {
-	Chomp::PositionFormatterOptions::set_default({ .sep=0, .tile_size=1 });
+	Chomp::PositionFormatterOptions::set_default({ .tile_size=1, .sep=0 });
 	auto p = Chomp::Position::starting_rectangle(6, 6);
 
+	std::cout << p;
+	std::cout << p.list() << '\n';
 	p = p.cut({ 5, 5 });
 	std::cout << p;
 	std::cout << p.list() << '\n';
 	p = p.cut({ 4, 5 });
 	std::cout << p;
 	std::cout << p.list() << '\n';
-	/*p = p.cut({ 5, 4 });
+	p = p.cut({ 5, 4 });
 	std::cout << p;
 	std::cout << p.list() << '\n';
 	p = p.cut({ 3, 2 });
-	std::cout << p.list();
+	std::cout << p;
 	std::cout << p.list() << '\n';
-	p = p.cut({ 1, 1 });
+	p = p.cut({ 0, 0 });
+	std::cout << p;
 
 	/*constexpr int max_height = 10;
 	using Position = Chomp::Position<max_height>;

@@ -179,19 +179,46 @@ namespace Chomp {
 		}
 
 		// Now cr == row or cr > row
+		if (cc >= col) {
+			// There is something to cut. Find first and last corners within the zone
+			int first_corner = i;
 
+			for (; i < corner_count && cols[i] >= col; ++i);
+			int last_corner = i - 1;
+
+			// First corner determines whether we put a new corner at (row-1, cols[first_corner])
+			// We do so if there are no squares to the right of the new corner; in other words, whether rows[first_corner-1] == row-1
+			// Last corner determines whether we put a new corner at (rows[last_corner], col-1)
+			// We do so if there are no squares above the new corner; in other words, whether cols[last_corner+1] == col-1
+			// If row-1 or col-1 is -1, we don't put a corner
+			// If any of these queries are out of bounds, we say there are squares there if the other value in the pair is not 0
+
+			// First corner
+			if ((row != 0) && ((first_corner == 0) || rows[first_corner - 1] != row - 1)) {
+				// need to add corner
+				p.rows[write_index] = row-1;
+				p.cols[write_index] = cols[first_corner];
+
+				write_index++;
+			}
+
+			if ((col != 0) && ((last_corner == corner_count - 1) || cols[last_corner + 1] != col - 1)) {
+				// need to add corner
+				p.rows[write_index] = rows[last_corner];
+				p.cols[write_index] = col-1;
+
+				write_index++;
+			}
+		}
+
+		// Copy the rest
 		for (; i < corner_count; ++i) {
 			cr = rows[i];
 			cc = cols[i];
 
-			if (cr < row) {
-				// Copy it (Case A)
-				p.rows[write_index] = cr;
-				p.cols[write_index] = cc;
-				write_index++;
-			} else {
-				break;
-			}
+			p.rows[write_index] = cr;
+			p.cols[write_index] = cc;
+			write_index++;
 		}
 
 		p.corner_count = write_index;
