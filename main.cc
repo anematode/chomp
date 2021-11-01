@@ -6,8 +6,10 @@
 #include <iostream>
 
 int main () {
-	Chomp::Position<5> p{4, 4, 3};
+	constexpr int max_height = 10;
+	using Position = Chomp::Position<max_height>;
 
-	std::cout << p.to_string();
-	std::cout << Chomp::hash_position(p);
+	Chomp::get_positions_with_n_tiles<max_height>(7, [&] (Position p) {
+		std::cout << p.to_string({ .tile_size = 1, .sep = 0 }) << "-----\n";
+	}, 3, 3);
 }
