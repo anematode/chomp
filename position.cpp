@@ -142,21 +142,23 @@ namespace Chomp {
 		return cut(c.first, c.second);
 	}
 
-	map_type losing_position_info;
+	std::vector<map_type*> losing_position_info {};
 
 	PositionInfo Position::info() const {
 		if (height == 0) return { .is_winning=true, .dte=0 };
 
-		auto losing_position = losing_position_info.find(canonical_hash());
-		if (losing_position == losing_position_info.end()) {
+		auto map = losing_position_info[square_count()];
+		auto losing_position = map->find(canonical_hash());
+		if (losing_position == map->end()) {
 			// Winning position
 			int min_dte = INT_MAX;
 
 			for_each_cut([&] (Cut c) {
 				Position cutted = cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+				auto map = losing_position_info[cutted.square_count()];
+				auto cutted_info = map->find(cutted.canonical_hash());
 
-				if (cutted_info != losing_position_info.end()) {
+				if (cutted_info != map->end()) {
 					// For all losing cuts
 					int dte = cutted_info->second.dte;
 					min_dte = std::min(dte+1, min_dte);
@@ -187,11 +189,14 @@ namespace Chomp {
 
 			p.for_each_cut([&] (Cut c) {
 				Position cutted = p.cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+				int cnt = cutted.square_count();
+
+				auto m = losing_position_info[cnt];
+				auto cutted_info = m->find(cutted.canonical_hash());
 
 				if (opts.compute_dte) cutted_list.push_back(cutted);
 
-				if (cutted_info != losing_position_info.end()) {
+				if (cutted_info != m->end()) {
 					is_winning = true;
 					num_winning_moves += multiplicity;
 				}
@@ -216,12 +221,19 @@ namespace Chomp {
 	}
 
 	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
-		losing_position_info.set_empty_key(-1); // initialize losing_position
-
 		const unsigned POSITION_BATCH_SIZE = 1000000; // how many positions to process at once
 		const int NUM_THREADS = 8;
 
 		std::vector<Position> positions;
+
+		int n = 1; // number of squares currently being processed
+		map_type* losing_map;
+
+		losing_position_info.resize(std::max(losing_position_info.size(), (unsigned long)max_squares));
+
+		map_type* zero_map = new map_type{};
+		zero_map->set_empty_key(-1);
+		losing_position_info[0] = zero_map;
 
 		auto process_positions = [&] {
 			size_t size = positions.size();
@@ -238,10 +250,11 @@ namespace Chomp {
 
 				for (int i = 0; i < NUM_THREADS; ++i) {
 					position_iterator end = (i == NUM_THREADS - 1) ? positions.end() : (begin + positions_per_thread);
-					map_type* thread_map = new map_type{};
-					maps.push_back(thread_map);
 
+					auto thread_map = new map_type{};
 					thread_map->set_empty_key(-1);
+
+					maps.push_back(thread_map);
 
 					std::thread thread ([=] (map_type* map) {
 						hash_positions_over_iterator(*map, begin, end);
@@ -258,19 +271,21 @@ namespace Chomp {
 
 				for (map_type* map : maps) {
 					for (auto pair : *map) {
-						// Merge...
-						losing_position_info[pair.first] = pair.second;
+						(*losing_map)[pair.first] = pair.second;
 					}
 
 					delete map;
 				}
 			} else {
-				hash_positions_over_iterator(losing_position_info, positions.begin(), positions.end(), opts);
+				hash_positions_over_iterator(*losing_map, positions.begin(), positions.end(), opts);
 			}
 		};
 
-		for (int n = 1; n <= max_squares; ++n) {
+		for (; n <= max_squares; ++n) {
 			num_winning_moves = num_positions = num_losing_positions = 0;
+
+			losing_map = new map_type{};
+			losing_map->set_empty_key(-1);
 
 			get_positions_with_n_tiles(n, [&] (const Position& p) {
 				positions.push_back(p);
@@ -285,6 +300,9 @@ namespace Chomp {
 			// Process remaining positions
 			process_positions();
 			positions.clear();
+
+			// Add map to list
+			losing_position_info[n] = losing_map;
 
 			//std::printf("%i\t%f\n", n, num_winning_moves / (float) num_positions);
 			std::printf("%i %i %i %i\n", n, (int)num_positions, (int)num_winning_moves, (int)num_losing_positions);
@@ -358,10 +376,10 @@ namespace Chomp {
 		}
 	}
 
-  // copy constructor
+	// copy constructor
 	Position::Position(const Position &p) {
 		height = p.height;
-	  o = p.o;
+		o = p.o;
 		for (int i = 0; i < height; ++i) {
 			rows[i] = p.rows[i];
 		}
@@ -558,7 +576,7 @@ namespace Chomp {
 		return ss.str();
 	}
 
-	void store_positions(const std::string& filename) {
+	/*void store_positions(const std::string& filename) {
 		store_positions(filename.c_str());
 	}
 
@@ -572,5 +590,5 @@ namespace Chomp {
 
 	void load_positions(const char* filename) {
 		store::read_map(losing_position_info, filename);
-	}
+	}*/
 }
