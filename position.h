@@ -74,6 +74,8 @@ namespace Chomp {
   	int dte;
   };
 
+	using map_type = std::unordered_map<uint64_t, LosingPositionInfo>;
+
 	struct PositionInfo {
 		bool is_winning;
 		int dte; // distance to game end, assuming optimal play
@@ -245,11 +247,11 @@ namespace Chomp {
 
 	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1, HashPositionOptions={});
 
-	void store(const std::string& filename);
-	void store(const char* filename);
+	void store_positions(const std::string& filename);
+	void store_positions(const char* filename);
 
-	void load(const std::string& filename);
-	void load(const char* filename);
+	void load_positions(const std::string& filename);
+	void load_positions(const char* filename);
 }
 
 #endif //CHOMP_POSITION_H

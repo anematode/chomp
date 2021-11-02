@@ -55,7 +55,6 @@ namespace Chomp {
 		return cut(c.first, c.second);
 	}
 
-	using map_type = std::unordered_map<uint64_t, LosingPositionInfo>;
 	map_type losing_position_info;
 
 	void Position::reflect_if_necessary() {
@@ -447,19 +446,19 @@ namespace Chomp {
 		return ss.str();
 	}
 
-	void store(const std::string& filename) {
-		store(filename.c_str());
+	void store_positions(const std::string& filename) {
+		store_positions(filename.c_str());
 	}
 
-	void store(const char* filename) {
-		store::write_map(position_info, filename);
+	void store_positions(const char* filename) {
+		store::write_map(losing_position_info, filename);
 	}
 
-	void load(const std::string& filename) {
-		load(filename.c_str());
+	void load_positions(const std::string& filename) {
+		load_positions(filename.c_str());
 	}
 
-	void load(const char* filename) {
-		store::read_map(position_info, filename);
+	void load_positions(const char* filename) {
+		store::read_map(losing_position_info, filename);
 	}
 }
