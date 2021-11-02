@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <thread>
 #include <memory>
+#include <atomic>
 
 #define INT_MAX std::numeric_limits<int>::max()
 
@@ -154,17 +155,15 @@ namespace Chomp {
 	}
 
 	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
-		for (int n = 1; n <= max_squares; ++n) {
-			std::vector<Position> positions;
-			get_positions_with_n_tiles(n, [&] (const Position& p) {
-				positions.push_back(p);
-			}, bound_width, bound_height);
+		const unsigned POSITION_BATCH_SIZE = 1000000; // how many positions to process at once
+		const int NUM_THREADS = 8;
 
-			num_winning_moves = num_positions = num_losing_positions = 0;
+		std::vector<Position> positions;
 
+		auto process_positions = [&] {
 			size_t size = positions.size();
+
 			if (size > 10000) {
-				const int NUM_THREADS = 8;
 				std::vector<std::thread> threads;
 
 				// Divvy up the work, with size/NUM_THREADS each
@@ -198,6 +197,24 @@ namespace Chomp {
 			} else {
 				hash_positions_over_iterator(losing_position_info, positions.begin(), positions.end(), opts);
 			}
+		};
+
+		for (int n = 1; n <= max_squares; ++n) {
+			num_winning_moves = num_positions = num_losing_positions = 0;
+
+			get_positions_with_n_tiles(n, [&] (const Position& p) {
+				positions.push_back(p);
+
+				// Process positions in batches
+				if (positions.size() > POSITION_BATCH_SIZE) {
+					process_positions();
+					positions.clear();
+				}
+			}, bound_width, bound_height);
+
+			// Process remaining positions
+			process_positions();
+			positions.clear();
 
 			//std::printf("%i\t%f\n", n, num_winning_moves / (float) num_positions);
 			std::printf("%i %i %i %i\n", n, (int)num_positions, (int)num_winning_moves, (int)num_losing_positions);
