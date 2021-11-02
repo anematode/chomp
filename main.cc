@@ -8,14 +8,18 @@
 #include <cstdio>
 
 int main () {
-	constexpr int dimension = 100;
+	// MAX_HEIGHT: 100, dimension: 80, NUM_THREADS: 8, BATCH_SIZE: 1000000
+	// With canonical hashing: hash_positions took 
+
+	constexpr int dimension = 80;
+	using namespace Chomp;
 
 	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
-	Chomp::hash_positions(dimension, dimension, dimension);
+	Chomp::hash_positions(dimension, dimension, dimension, { .compute_dte=false });
 
 	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 	std::cout << "Time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
 
-	Chomp::store_positions("/Users/timoothy/Documents/GitHub/chomp/files/100.bin");
+	//Chomp::store_positions("/Users/timoothy/Documents/GitHub/chomp/files/18by18.bin");
 }

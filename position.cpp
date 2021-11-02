@@ -5,6 +5,7 @@
 #include <memory>
 #include <atomic>
 
+#undef INT_MAX
 #define INT_MAX std::numeric_limits<int>::max()
 
 namespace Chomp {
@@ -30,6 +31,91 @@ namespace Chomp {
 
 	void PositionFormatterOptions::set_default(PositionFormatterOptions opts) {
 		default_formatter_options = opts;
+	}
+
+	Orientation Position::is_canonical() {
+		using O = Orientation;
+
+		if (o == O::UNKNOWN) o = _is_canonical();
+
+		return o;
+	}
+
+	void Position::make_canonical() {
+		Orientation canonical = is_canonical();
+
+		if (canonical == Orientation::CANONICAL || canonical == Orientation::SYMMETRICAL) return;
+		// Time to flip
+		flip();
+	}
+
+	void Position::flip_in_place() {
+		// Flip the position across the diagonal. Note that if rows[0] >= MAX_HEIGHT it may be chopped off
+		int col = 0;
+		int new_rows[MAX_HEIGHT];
+
+		for (int i = height - 1; i >= 0; --i) {
+			int row = rows[i];
+
+			while (row > col) {
+				new_rows[col] = i + 1;
+				col++;
+
+				if (col == MAX_HEIGHT) goto done;
+			}
+		}
+		done:
+
+		height = col;
+		std::copy(new_rows, new_rows+height, rows);
+
+		using O = Orientation;
+		if (o == O::NOT_CANONICAL)
+			o = O::CANONICAL;
+		else if (o == O::CANONICAL)
+			o = O::NOT_CANONICAL;
+	}
+
+	Position Position::flip() {
+		Position p = *this;
+
+		p.flip_in_place();
+
+		return p;
+	}
+
+	Orientation Position::_is_canonical() const {
+		using O = Orientation;
+
+		// Easy criteria
+		if (rows[0] > height) return O::CANONICAL;
+		if (height == 0) return O::SYMMETRICAL;
+		if (rows[0] < height) return O::NOT_CANONICAL;
+
+		// We calculate the number of tiles in each column and compare sequentially to rows[col]
+		int col = 1, min_height = 0;
+		for (int i = height - 1; i >= min_height; --i) {
+			int r = rows[i];
+			while (r > col) {
+				// i is the number of tiles in column col
+				// compare col and row_compare
+				if (i + 1 > rows[col])
+					return O::NOT_CANONICAL;
+				else if (i + 1 < rows[col])
+					return O::CANONICAL;
+
+				col++;
+			}
+		}
+
+		return O::SYMMETRICAL; // symmetrical
+	}
+
+	Position Position::canonical() const {
+		Position p = *this;
+		p.make_canonical();
+
+		return p;
 	}
 
 	Position Position::cut(int row, int col) const {
@@ -58,43 +144,17 @@ namespace Chomp {
 
 	map_type losing_position_info;
 
-	void Position::reflect_if_necessary() {
-		if (height == 0) return;
-
-		int cols[MAX_HEIGHT];
-
-		int ri = height - 1;
-		int ci = 0;
-
-		while (ri >= 0) {
-			if (ci >= rows[ri]) {
-				ri--;
-				continue;
-			}
-			cols[ci++] = ri + 1;
-		}
-
-		int i = 0;
-		do {
-			if (cols[i] > rows[i]) {
-				std::copy(cols, cols+MAX_HEIGHT, rows);
-				height = ci;
-				return;
-			}
-		} while(rows[i] == cols[i++]);
-	}
-
 	PositionInfo Position::info() const {
 		if (height == 0) return { .is_winning=true, .dte=0 };
 
-		auto losing_position = losing_position_info.find(hash());
+		auto losing_position = losing_position_info.find(canonical_hash());
 		if (losing_position == losing_position_info.end()) {
 			// Winning position
 			int min_dte = INT_MAX;
 
 			for_each_cut([&] (Cut c) {
 				Position cutted = cut(c);
-				auto cutted_info = losing_position_info.find(cutted.hash());
+				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
 
 				if (cutted_info != losing_position_info.end()) {
 					// For all losing cuts
@@ -121,18 +181,19 @@ namespace Chomp {
 			Position p = *it;
 
 			bool is_winning = false;
+			int multiplicity = (p.o == Orientation::CANONICAL) ? 2 : 1;
 
-			num_positions++;
+			num_positions += multiplicity;
 
 			p.for_each_cut([&] (Cut c) {
 				Position cutted = p.cut(c);
-				auto cutted_info = losing_position_info.find(cutted.hash());
+				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
 
 				if (opts.compute_dte) cutted_list.push_back(cutted);
 
 				if (cutted_info != losing_position_info.end()) {
 					is_winning = true;
-					num_winning_moves++;
+					num_winning_moves += multiplicity;
 				}
 			});
 
@@ -146,8 +207,8 @@ namespace Chomp {
 			}
 
 			if (!is_winning) {
-				map[p.hash()] = { .dte = max_dte };
-				num_losing_positions++;
+				map[p.canonical_hash()] = { .dte = max_dte };
+				num_losing_positions += multiplicity;
 			}
 
 			cutted_list.clear();
@@ -210,7 +271,7 @@ namespace Chomp {
 					process_positions();
 					positions.clear();
 				}
-			}, bound_width, bound_height);
+			}, bound_width, bound_height, true /* only canonical positions */);
 
 			// Process remaining positions
 			process_positions();
@@ -259,6 +320,24 @@ namespace Chomp {
 		return hash;
 	}
 
+	// Return the hash of the flipped position
+	uint64_t hash_flipped_position(const Position &p) {
+		int col = 0;
+		uint64_t hash = 0;
+
+		for (int i = p.height - 1; i >= 0; --i) {
+			int row = p.rows[i];
+
+			while (row > col) {
+				hash += i + 1;
+				hash *= 179424673L;
+				col++;
+			}
+		}
+
+		return hash;
+	}
+
 	Position::Position() {
 
 	}
@@ -270,9 +349,10 @@ namespace Chomp {
 		}
 	}
 
-// copy constructor
+  // copy constructor
 	Position::Position(const Position &p) {
 		height = p.height;
+	  o = p.o;
 		for (int i = 0; i < height; ++i) {
 			rows[i] = p.rows[i];
 		}
@@ -297,6 +377,12 @@ namespace Chomp {
 	}
 
 	uint64_t Position::hash() const {
+		return hash_position(*this);
+	}
+
+	uint64_t Position::canonical_hash() const {
+		if (o == Orientation::CANONICAL || o == Orientation::SYMMETRICAL) return hash_position(*this);
+		if (o == Orientation::NOT_CANONICAL || (_is_canonical() == Orientation::NOT_CANONICAL)) return hash_flipped_position(*this);
 		return hash_position(*this);
 	}
 

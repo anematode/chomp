@@ -68,6 +68,20 @@ namespace Chomp {
 		bool compute_winning_moves=false;
 	};
 
+	// Orientation of the position, relative to the canonical reflection. Example:
+	//     ##                #
+	//     ##                ###
+	//     ###               ###
+	// not canonical      canonical
+	// Symmetrical positions are always canonical
+	enum class Orientation
+	{
+		CANONICAL,
+		SYMMETRICAL,
+		NOT_CANONICAL,
+		UNKNOWN
+	};
+
   inline PositionFormatterOptions default_formatter_options;
 
   struct LosingPositionInfo {
@@ -93,6 +107,8 @@ namespace Chomp {
 		int rows[MAX_HEIGHT];
 		// Number of non-zero rows
 		int height;
+		// Orientation of the position
+		Orientation o = Orientation::UNKNOWN;
 
 		Position();
 		Position(const std::initializer_list<int>&);
@@ -111,6 +127,7 @@ namespace Chomp {
 
 		int square_count() const;
 		uint64_t hash() const;
+		uint64_t canonical_hash() const;
 
 		Position cut (int row, int col) const;
 		Position cut (Cut) const;
@@ -129,6 +146,16 @@ namespace Chomp {
 		int num_winning_cuts() const;
 
 		PositionInfo info() const;
+		Orientation is_canonical();
+
+		void make_canonical();
+		void flip_in_place();
+		Position flip();
+
+		Position canonical() const;
+
+	private:
+		Orientation _is_canonical() const;
 	};
 
 	/**
@@ -140,11 +167,12 @@ namespace Chomp {
 	 * @param callback Callback function accepting a single parameter, the position (as a const ref)
 	 * @param bound_width -1 if unbounded; otherwise, the bound on the width
 	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
+	 * @param only_canonical If true, call lambda only with the canonical solutions (approximately half of all solutions)
 	 */
 	template<typename Lambda>
-	void get_positions_with_n_tiles(int n, Lambda callback, int bound_width = -1, int bound_height = -1) {
+	void get_positions_with_n_tiles(int n, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
 		static_assert(std::is_invocable_v<Lambda, const Position &>,
-		              FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts Positions with the same MAX_HEIGHT");
+		              FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts a Position");
 
 		if (n < 0)
 			throw new std::runtime_error(FILE_LINE
@@ -202,7 +230,10 @@ namespace Chomp {
 
 			if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
 				p.height = (current == 0) ? i : (i + 1);
-				callback(p);
+				// Sets the canonical status of p
+				if (!only_canonical || (p.is_canonical(), (p.o == Orientation::CANONICAL || p.o == Orientation::SYMMETRICAL)))
+					callback(p);
+				p.o = Orientation::UNKNOWN;
 
 				rows[i--] = 0;
 				remaining += current;
@@ -226,11 +257,11 @@ namespace Chomp {
 	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
 	 */
 	template<typename Lambda>
-	void get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1) {
+	void get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
 		for (int i = min; i < max; ++i) {
 			if (DEBUG)
 				std::printf("Getting positions with %i tiles\n", i);
-			get_positions_with_n_tiles(i, callback, bound_width, bound_height);
+			get_positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical);
 		}
 	}
 
