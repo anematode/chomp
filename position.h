@@ -101,6 +101,8 @@ namespace Chomp {
 		Position cut (int row, int col) const;
 		Position cut (Cut) const;
 
+		void reflect_if_necessary();
+
 		template <typename Lambda>
 		void for_each_cut(Lambda) const;
 

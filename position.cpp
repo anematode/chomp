@@ -54,6 +54,32 @@ namespace Chomp {
 
 	std::unordered_map<uint64_t, PositionInfo> position_info;
 
+	void Position::reflect_if_necessary() {
+		if (height == 0) return;
+
+		int cols[MAX_HEIGHT];
+
+		int ri = height - 1;
+		int ci = 0;
+
+		while (ri >= 0) {
+			if (ci >= rows[ri]) {
+				ri--;
+				continue;
+			}
+			cols[ci++] = ri + 1;
+		}
+
+		int i = 0;
+		do {
+			if (cols[i] > rows[i]) {
+				std::copy(cols, cols+MAX_HEIGHT, rows);
+				height = ci;
+				return;
+			}
+		} while(rows[i] == cols[i++]);
+	}
+
 	PositionInfo Position::info() const {
 		return position_info[hash()];
 	}
