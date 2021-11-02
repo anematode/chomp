@@ -1,5 +1,5 @@
-#include <position.h>
-#include <store.h>
+#include <position.hpp>
+#include <store.hpp>
 #include <unordered_map>
 #include <thread>
 #include <memory>
@@ -216,6 +216,8 @@ namespace Chomp {
 	}
 
 	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
+		losing_position_info.set_empty_key(-1); // initialize losing_position
+
 		const unsigned POSITION_BATCH_SIZE = 1000000; // how many positions to process at once
 		const int NUM_THREADS = 8;
 
@@ -236,7 +238,10 @@ namespace Chomp {
 
 				for (int i = 0; i < NUM_THREADS; ++i) {
 					position_iterator end = (i == NUM_THREADS - 1) ? positions.end() : (begin + positions_per_thread);
-					maps.push_back(new map_type{});
+					map_type* thread_map = new map_type{};
+					maps.push_back(thread_map);
+
+					thread_map->set_empty_key(-1);
 
 					std::thread thread ([=] (map_type* map) {
 						hash_positions_over_iterator(*map, begin, end);
@@ -252,7 +257,11 @@ namespace Chomp {
 				}
 
 				for (map_type* map : maps) {
-					losing_position_info.merge(*map);
+					for (auto pair : *map) {
+						// Merge...
+						losing_position_info[pair.first] = pair.second;
+					}
+
 					delete map;
 				}
 			} else {

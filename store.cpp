@@ -5,11 +5,11 @@
 * @Last Modified time: 2021-11-01 20:00:11
 */
 
-#include <position.h>
+#include <position.hpp>
 
 namespace Chomp {
 	namespace store {
-		void write_map(const std::unordered_map<uint64_t, Chomp::LosingPositionInfo> &map, const char *filename) {
+		void write_map(const map_type &map, const char *filename) {
 			FILE *f = fopen(filename, "w");
 			if (!f) throw new std::runtime_error("Failed to open file");
 
@@ -24,7 +24,7 @@ namespace Chomp {
 			fclose(f);
 		}
 
-		void read_map(std::unordered_map<uint64_t, Chomp::LosingPositionInfo> &map, const char *filename) {
+		void read_map(map_type &map, const char *filename) {
 			FILE *f = fopen(filename, "r");
 			if (!f) throw new std::runtime_error("Failed to open file");
 

@@ -1,5 +1,5 @@
 
-#include <position.h>
+#include <position.hpp>
 
 namespace Chomp {
 	namespace store {
