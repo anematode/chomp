@@ -12,7 +12,9 @@ add_executable(chomp
         position.hpp
         store.cpp
         store.hpp
-        sparsehash/dense_hash_map.hpp
-        sparsehash/dense_hash_table.hpp
-        sparsehash/hashtable_common.hpp
-        sparsehash/libc_allocator_with_realloc.hpp)
+        parallel_hashmap/meminfo.h
+        parallel_hashmap/phmap.h
+        parallel_hashmap/phmap_bits.h
+        parallel_hashmap/phmap_dump.h
+        parallel_hashmap/phmap_utils.h
+        parallel_hashmap/phmap_fwd_decl.h)

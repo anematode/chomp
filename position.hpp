@@ -22,7 +22,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <type_traits>
-#include <sparsehash/dense_hash_map.hpp>
+#include <parallel_hashmap/phmap.h>
 
 namespace Chomp {
 	// Globally defined max height
@@ -88,7 +88,7 @@ namespace Chomp {
   	int dte;
   };
 
-	using map_type = google::dense_hash_map<uint64_t, LosingPositionInfo>;
+	using map_type = phmap::parallel_flat_hash_map<uint64_t, LosingPositionInfo>;
 
 	struct PositionInfo {
 		bool is_winning;

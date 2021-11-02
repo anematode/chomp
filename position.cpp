@@ -216,8 +216,6 @@ namespace Chomp {
 	}
 
 	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
-		losing_position_info.set_empty_key(-1); // initialize losing_position
-
 		const unsigned POSITION_BATCH_SIZE = 1000000; // how many positions to process at once
 		const int NUM_THREADS = 8;
 
@@ -241,8 +239,6 @@ namespace Chomp {
 					map_type* thread_map = new map_type{};
 					maps.push_back(thread_map);
 
-					thread_map->set_empty_key(-1);
-
 					std::thread thread ([=] (map_type* map) {
 						hash_positions_over_iterator(*map, begin, end);
 					}, maps.back());
@@ -257,10 +253,7 @@ namespace Chomp {
 				}
 
 				for (map_type* map : maps) {
-					for (auto pair : *map) {
-						// Merge...
-						losing_position_info[pair.first] = pair.second;
-					}
+					losing_position_info.merge(*map);
 
 					delete map;
 				}

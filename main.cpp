@@ -14,6 +14,7 @@ int main () {
 	// Canonical hashing, BATCH_SIZE: 10000000, hash_positions took 102.4 seconds (Tim's computer)
 	// With hashing including square count: 89.0 seconds
 	// With google::dense_hash_map: 66.6 seconds
+	// With phmap::parallel_flat_hash_map: 53.1 seconds
 
 	constexpr int dimension = 80;
 	using namespace Chomp;
