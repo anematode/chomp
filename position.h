@@ -7,6 +7,7 @@
 
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
+#define INT_MAX std::numeric_limits<int>::max()
 
 // Get the file and line number
 #define FILE_LINE __FILE__ ":" STR(__LINE__) ": "
@@ -35,8 +36,8 @@ namespace Chomp {
 		int tile_size = -1;
 
 		// Minimum number of tiles to display in each direction
-		int min_width = 1;
-		int min_height = 1;
+		int min_width = 3;
+		int min_height = 3;
 
 		// Separation in newlines and spaces, respectively, between tiles in each direction
 		int horizontal_sep = 1;
