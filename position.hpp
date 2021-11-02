@@ -22,11 +22,11 @@
 #include <initializer_list>
 #include <iostream>
 #include <type_traits>
-#include <parallel_hashmap/phmap.h>
+#include "parallel_hashmap/phmap.h"
 
 namespace Chomp {
 	// Globally defined max height
-	constexpr int MAX_HEIGHT = 100;
+	constexpr int MAX_HEIGHT = 120;
 
 	// Options for formatting to string
 	struct PositionFormatterOptions
@@ -66,6 +66,8 @@ namespace Chomp {
 	{
 		bool compute_dte=false;
 		bool compute_winning_moves=false;
+		int num_threads = 8;
+		int batch_size = 1000000;
 	};
 
 	// Orientation of the position, relative to the canonical reflection. Example:
@@ -88,7 +90,7 @@ namespace Chomp {
   	int dte;
   };
 
-	using map_type = phmap::parallel_flat_hash_map<uint64_t, LosingPositionInfo>;
+	using map_type = phmap::parallel_flat_hash_set<uint64_t>;
 
 	struct PositionInfo {
 		bool is_winning;
@@ -137,7 +139,7 @@ namespace Chomp {
 		void reflect_if_necessary();
 
 		template <typename Lambda>
-		void for_each_cut(Lambda) const;
+		bool for_each_cut(Lambda) const;
 
 		static Position starting_rectangle(int width, int height);
 		static Position empty_position();
@@ -170,7 +172,7 @@ namespace Chomp {
 	 * @param only_canonical If true, call lambda only with the canonical solutions (approximately half of all solutions)
 	 */
 	template<typename Lambda>
-	void get_positions_with_n_tiles(int n, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
+	bool get_positions_with_n_tiles(int n, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
 		static_assert(std::is_invocable_v<Lambda, const Position &>,
 		              FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts a Position");
 
@@ -231,8 +233,10 @@ namespace Chomp {
 			if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
 				p.height = (current == 0) ? i : (i + 1);
 				// Sets the canonical status of p
-				if (!only_canonical || (p.is_canonical(), (p.o == Orientation::CANONICAL || p.o == Orientation::SYMMETRICAL)))
-					callback(p);
+				if (!only_canonical || (p.is_canonical(), (p.o == Orientation::CANONICAL || p.o == Orientation::SYMMETRICAL))) {
+					if (callback(p)) // if the callback returns true, terminate early
+						return true;
+				}
 				p.o = Orientation::UNKNOWN;
 
 				rows[i--] = 0;
@@ -244,6 +248,8 @@ namespace Chomp {
 				i = std::min(i + 1, bound_height - 1);
 			}
 		}
+
+		return false;
 	}
 
 	/**
@@ -257,23 +263,28 @@ namespace Chomp {
 	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
 	 */
 	template<typename Lambda>
-	void get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
+	bool get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
 		for (int i = min; i < max; ++i) {
-			if (DEBUG)
-				std::printf("Getting positions with %i tiles\n", i);
-			get_positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical);
+			if (get_positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical)) {
+				return true;
+			}
 		}
+
+		return false;
 	}
 
 	template <typename Lambda>
-	void Position::for_each_cut(Lambda callback) const {
+	bool Position::for_each_cut(Lambda callback) const {
 		for (int i = 0; i < height; ++i) {
 			int cnt = rows[i];
 
 			for (int col = 0; col < cnt; ++col) {
-				callback({ i, col });
+				if (callback({ i, col }))
+					return true;
 			}
 		}
+
+		return false;
 	}
 
 	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1, HashPositionOptions={});

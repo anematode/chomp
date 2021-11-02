@@ -12,3 +12,5 @@ CMakeFiles/**
 chomp
 **/.DS_Store
 **/*.bin
+
+files/**

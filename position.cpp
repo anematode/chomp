@@ -1,9 +1,10 @@
-#include <position.hpp>
-#include <store.hpp>
+#include "position.hpp"
+#include "store.hpp"
 #include <unordered_map>
 #include <thread>
 #include <memory>
 #include <atomic>
+#include <fstream>
 
 #undef INT_MAX
 #define INT_MAX std::numeric_limits<int>::max()
@@ -145,38 +146,21 @@ namespace Chomp {
 	map_type losing_position_info;
 
 	PositionInfo Position::info() const {
-		if (height == 0) return { .is_winning=true, .dte=0 };
+		if (height == 0) return { .is_winning=true };
 
 		auto losing_position = losing_position_info.find(canonical_hash());
 		if (losing_position == losing_position_info.end()) {
-			// Winning position
-			int min_dte = INT_MAX;
-
-			for_each_cut([&] (Cut c) {
-				Position cutted = cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
-
-				if (cutted_info != losing_position_info.end()) {
-					// For all losing cuts
-					int dte = cutted_info->second.dte;
-					min_dte = std::min(dte+1, min_dte);
-				}
-			});
-
-			return { .is_winning=true, .dte=min_dte };
+			return { .is_winning=true };
 		} else {
-			return { .is_winning=false, .dte=losing_position->second.dte };
+			return { .is_winning=false };
 		}
 	}
 
 	std::atomic<int> num_positions;
-	std::atomic<int> num_winning_moves;
 	std::atomic<int> num_losing_positions;
 
 	using position_iterator = std::vector<Position>::iterator;
 	void hash_positions_over_iterator(map_type& map, position_iterator begin, position_iterator end, HashPositionOptions opts={}) {
-		std::vector<Position> cutted_list;
-
 		for (auto it = begin; it != end; ++it) {
 			Position p = *it;
 
@@ -187,37 +171,31 @@ namespace Chomp {
 
 			p.for_each_cut([&] (Cut c) {
 				Position cutted = p.cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+				bool cutted_info = losing_position_info.contains(cutted.canonical_hash());
 
-				if (opts.compute_dte) cutted_list.push_back(cutted);
-
-				if (cutted_info != losing_position_info.end()) {
+				if (cutted_info) {
 					is_winning = true;
-					num_winning_moves += multiplicity;
+					return true; // early termination
 				}
+
+				return false;
 			});
 
-			int max_dte = 0;
-			if (!is_winning && opts.compute_dte) {
-				for (Position& cutted : cutted_list) {
-					int dte = cutted.info().dte;
-
-					max_dte = std::max(dte+1, max_dte);
-				}
-			}
-
 			if (!is_winning) {
-				map[p.canonical_hash()] = { .dte = max_dte };
+				map.insert(p.canonical_hash());
 				num_losing_positions += multiplicity;
 			}
-
-			cutted_list.clear();
 		}
 	}
 
 	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
-		const unsigned POSITION_BATCH_SIZE = 1000000; // how many positions to process at once
-		const int NUM_THREADS = 8;
+		std::ofstream f("./files/120.txt", std::ofstream::out);
+		if (!f.is_open()) throw new std::runtime_error("Failed to open output file");
+
+		f << "Results:\n" << std::flush;
+
+		const unsigned POSITION_BATCH_SIZE = opts.batch_size; // how many positions to process at once
+		const int NUM_THREADS = opts.num_threads;
 
 		std::vector<Position> positions;
 
@@ -231,7 +209,6 @@ namespace Chomp {
 				int positions_per_thread = size / NUM_THREADS;
 
 				position_iterator begin = positions.begin();
-				//map_type map1, map2, map3, map4;
 				std::vector<map_type*> maps;
 
 				for (int i = 0; i < NUM_THREADS; ++i) {
@@ -263,7 +240,7 @@ namespace Chomp {
 		};
 
 		for (int n = 1; n <= max_squares; ++n) {
-			num_winning_moves = num_positions = num_losing_positions = 0;
+			num_positions = num_losing_positions = 0;
 
 			get_positions_with_n_tiles(n, [&] (const Position& p) {
 				positions.push_back(p);
@@ -273,6 +250,8 @@ namespace Chomp {
 					process_positions();
 					positions.clear();
 				}
+
+				return false;
 			}, bound_width, bound_height, true /* only canonical positions */);
 
 			// Process remaining positions
@@ -280,8 +259,14 @@ namespace Chomp {
 			positions.clear();
 
 			//std::printf("%i\t%f\n", n, num_winning_moves / (float) num_positions);
-			std::printf("%i %i %i %i\n", n, (int)num_positions, (int)num_winning_moves, (int)num_losing_positions);
+			std::stringstream ss;
+			ss << n << ' ' << (int)num_positions << ' ' << (int)num_losing_positions << '\n';
+			std::printf("%s", ss.str().c_str());
+
+			f << ss.str() << std::flush;
 		}
+
+		f.close();
 	}
 
 	std::vector<Cut> Position::winning_cuts() const {
@@ -291,6 +276,8 @@ namespace Chomp {
 			Position cutted = cut(c);
 			if (!cutted.info().is_winning)
 				ret.push_back(c);
+
+			return false;
 		});
 
 		return ret;
@@ -303,6 +290,8 @@ namespace Chomp {
 			Position cutted = cut(c);
 			if (!cutted.info().is_winning)
 				ret++;
+
+			return false;
 		});
 
 		return ret;
