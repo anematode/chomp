@@ -12,6 +12,7 @@ int main () {
 	// With canonical hashing: hash_positions took 90.02 seconds (Tim's computer)
 	// With simple hashing: hash_positions took 200.3 seconds (Tim's computer)
 	// Canonical hashing, BATCH_SIZE: 10000000, hash_positions took 102.4 seconds (Tim's computer)
+	// With hashing including squares: 89.0 seconds
 
 	constexpr int dimension = 80;
 	using namespace Chomp;
