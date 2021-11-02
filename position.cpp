@@ -33,38 +33,6 @@ namespace Chomp {
 		default_formatter_options = opts;
 	}
 
-	void PositionInfo::store(FILE* f, const StorePositionOptions opts) const {
-		int size = 0;
-		if (opts.store_dte) {
-			size = sizeof(dte);
-			fwrite(&dte, size, 1, f);
-		}
-
-		if (opts.store_position) {
-			size = sizeof(uint8_t);
-
-			fwrite(&height, size, 1, f);
-			fwrite(position, size, height, f);
-		}
-	}
-
-	PositionInfo load_position_info(FILE* f, const StorePositionOptions opts) {
-		int size = 0;
-
-		PositionInfo p{};
-
-		if (opts.store_dte) {
-			fread(&p.dte, sizeof(p.dte), 1, f);
-		}
-
-		if (opts.store_position) {
-			fread(&p.height, sizeof(p.height), 1, f);
-			fread(p.position, sizeof(p.height), p.height, f);
-		}
-
-		return p;
-	}
-
 	Orientation Position::is_canonical() {
 		using O = Orientation;
 

@@ -12,5 +12,3 @@ add_executable(chomp
         position.h
         store.cpp
         store.h)
-
-target_link_libraries(chomp -lpthread)
