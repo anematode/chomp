@@ -9,4 +9,6 @@ set(CMAKE_CXX_FLAGS "-O3 -Wall -Wextra")
 add_executable(chomp
         main.cc
         position.cpp
-        position.h)
+        position.h
+        store.cpp
+        store.h)

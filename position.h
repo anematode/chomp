@@ -244,6 +244,12 @@ namespace Chomp {
 	}
 
 	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1, HashPositionOptions={});
+
+	void store(const std::string& filename);
+	void store(const char* filename);
+
+	void load(const std::string& filename);
+	void load(const char* filename);
 }
 
 #endif //CHOMP_POSITION_H

@@ -1,4 +1,5 @@
 #include <position.h>
+#include <store.h>
 #include <unordered_map>
 #include <thread>
 #include <memory>
@@ -444,5 +445,21 @@ namespace Chomp {
 		}
 
 		return ss.str();
+	}
+
+	void store(const std::string& filename) {
+		store(filename.c_str());
+	}
+
+	void store(const char* filename) {
+		store::write_map(position_info, filename);
+	}
+
+	void load(const std::string& filename) {
+		load(filename.c_str());
+	}
+
+	void load(const char* filename) {
+		store::read_map(position_info, filename);
 	}
 }
