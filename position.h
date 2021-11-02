@@ -62,6 +62,13 @@ namespace Chomp {
 		static void set_default(PositionFormatterOptions opts);
 	};
 
+	struct StorePositionOptions
+	{
+		// Storage options
+		bool store_dte = true;
+		bool store_position = true;
+	};
+
 	struct HashPositionOptions
 	{
 		bool compute_dte=false;
@@ -84,16 +91,19 @@ namespace Chomp {
 
   inline PositionFormatterOptions default_formatter_options;
 
-  struct LosingPositionInfo {
-  	int dte;
-  };
-
-	using map_type = std::unordered_map<uint64_t, LosingPositionInfo>;
-
 	struct PositionInfo {
 		bool is_winning;
-		int dte; // distance to game end, assuming optimal play
+		uint8_t height;
+		uint8_t position[MAX_HEIGHT]; // the current stored position
+		uint16_t dte; // distance to game end, assuming optimal play
+
+		// compress this PositionInfo into a buffer. Returns the updated pointer.
+		void store(FILE* out, const StorePositionOptions opts = {}) const;
 	};
+
+	using map_type = std::unordered_map<uint64_t, PositionInfo>;
+
+	PositionInfo load_position_info(FILE* in, const StorePositionOptions opts = {});
 
 	using Cut = std::pair<int, int>;
 
