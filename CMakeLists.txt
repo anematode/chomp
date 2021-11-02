@@ -5,10 +5,16 @@ set(CMAKE_CXX_STANDARD 20)
 
 include_directories(.)
 
-set(CMAKE_CXX_FLAGS "-O3 -Wall -Wextra")
+set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall -Wextra")
 add_executable(chomp
-        main.cc
+        main.cpp
         position.cpp
-        position.h
+        position.hpp
         store.cpp
-        store.h)
+        store.hpp
+        parallel_hashmap/meminfo.h
+        parallel_hashmap/phmap.h
+        parallel_hashmap/phmap_bits.h
+        parallel_hashmap/phmap_dump.h
+        parallel_hashmap/phmap_utils.h
+        parallel_hashmap/phmap_fwd_decl.h)

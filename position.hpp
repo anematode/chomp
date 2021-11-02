@@ -22,7 +22,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <type_traits>
-#include <unordered_map>
+#include <parallel_hashmap/phmap.h>
 
 namespace Chomp {
 	// Globally defined max height
@@ -88,7 +88,7 @@ namespace Chomp {
   	int dte;
   };
 
-	using map_type = std::unordered_map<uint64_t, LosingPositionInfo>;
+	using map_type = phmap::parallel_flat_hash_map<uint64_t, LosingPositionInfo>;
 
 	struct PositionInfo {
 		bool is_winning;

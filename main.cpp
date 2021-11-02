@@ -2,7 +2,7 @@
 // Created by Timothy Herchen on 10/31/21.
 //
 
-#include <position.h>
+#include <position.hpp>
 #include <iostream>
 #include <chrono>
 #include <cstdio>
@@ -12,7 +12,9 @@ int main () {
 	// With canonical hashing: hash_positions took 90.02 seconds (Tim's computer)
 	// With simple hashing: hash_positions took 200.3 seconds (Tim's computer)
 	// Canonical hashing, BATCH_SIZE: 10000000, hash_positions took 102.4 seconds (Tim's computer)
-	// With hashing including squares: 89.0 seconds
+	// With hashing including square count: 89.0 seconds
+	// With google::dense_hash_map: 66.6 seconds
+	// With phmap::parallel_flat_hash_map: 53.1 seconds
 
 	constexpr int dimension = 80;
 	using namespace Chomp;
