@@ -9,7 +9,8 @@
 
 int main () {
 	// MAX_HEIGHT: 100, dimension: 80, NUM_THREADS: 8, BATCH_SIZE: 1000000
-	// With canonical hashing: hash_positions took 90.02 seconds
+	// With canonical hashing: hash_positions took 90.02 seconds (Tim's computer)
+	// With simple hashing: hash_positions took 200.3 seconds (Tim's computer)
 
 	constexpr int dimension = 80;
 	using namespace Chomp;
