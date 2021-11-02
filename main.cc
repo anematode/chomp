@@ -12,7 +12,7 @@ int main () {
 
 	using Position = Chomp::Position;
 
-	constexpr int dimension = 10;
+	constexpr int dimension = 50;
 
 	FILE* out = fopen("files/out.txt", "w");
 
