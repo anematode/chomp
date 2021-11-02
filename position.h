@@ -12,6 +12,8 @@
 // Get the file and line number
 #define FILE_LINE __FILE__ ":" STR(__LINE__) ": "
 
+#define DEBUG 0
+
 #include <ostream>
 #include <sstream>
 #include <iomanip>
@@ -108,6 +110,9 @@ namespace Chomp {
 
 		static Position starting_rectangle(int width, int height);
 		static Position empty_position();
+
+		std::vector<Cut> winning_cuts() const;
+		int num_winning_cuts() const;
 
 		PositionInfo info() const;
 	};
@@ -209,6 +214,8 @@ namespace Chomp {
 	template<typename Lambda>
 	void get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1) {
 		for (int i = min; i < max; ++i) {
+			if (DEBUG)
+				std::printf("Getting positions with %i tiles\n", i);
 			get_positions_with_n_tiles(i, callback, bound_width, bound_height);
 		}
 	}

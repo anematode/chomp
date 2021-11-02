@@ -117,6 +117,31 @@ namespace Chomp {
 		}, bound_width, bound_height);
 	}
 
+	std::vector<Cut> Position::winning_cuts() const {
+		std::vector<Cut> ret;
+
+		for_each_cut([&] (Cut c) {
+			Position cutted = cut(c);
+			if (!cutted.info().is_winning)
+				ret.push_back(c);
+		});
+
+		return ret;
+	}
+
+	int Position::num_winning_cuts() const {
+		int ret = 0;
+
+		for_each_cut([&] (Cut c) {
+			Position cutted = cut(c);
+			if (!cutted.info().is_winning)
+				ret++;
+		});
+
+		return ret;
+	}
+
+
 	uint64_t hash_position(const Position &p) {
 		// It isn't the greatest hash function, but it works. The hash function *is* dependent on MAX_HEIGHT
 		const int *rows = p.rows;
