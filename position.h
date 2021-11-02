@@ -26,7 +26,7 @@
 
 namespace Chomp {
 	// Globally defined max height
-	constexpr int MAX_HEIGHT = 25;
+	constexpr int MAX_HEIGHT = 100;
 
 	// Options for formatting to string
 	struct PositionFormatterOptions
@@ -62,10 +62,20 @@ namespace Chomp {
 		static void set_default(PositionFormatterOptions opts);
 	};
 
+	struct HashPositionOptions
+	{
+		bool compute_dte=false;
+		bool compute_winning_moves=false;
+	};
+
   inline PositionFormatterOptions default_formatter_options;
 
+  struct LosingPositionInfo {
+  	int dte;
+  };
+
 	struct PositionInfo {
-		bool is_winning; // whether the position is winning
+		bool is_winning;
 		int dte; // distance to game end, assuming optimal play
 	};
 
@@ -103,6 +113,8 @@ namespace Chomp {
 		Position cut (int row, int col) const;
 		Position cut (Cut) const;
 
+		bool is_cut_winning (int row, int col) const;
+		PositionInfo cut_info (int row, int col) const;
 		void reflect_if_necessary();
 
 		template <typename Lambda>
@@ -231,7 +243,7 @@ namespace Chomp {
 		}
 	}
 
-	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1);
+	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1, HashPositionOptions={});
 }
 
 #endif //CHOMP_POSITION_H

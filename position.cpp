@@ -1,5 +1,7 @@
 #include <position.h>
 #include <unordered_map>
+#include <thread>
+#include <memory>
 
 #define INT_MAX std::numeric_limits<int>::max()
 
@@ -52,7 +54,8 @@ namespace Chomp {
 		return cut(c.first, c.second);
 	}
 
-	std::unordered_map<uint64_t, PositionInfo> position_info;
+	using map_type = std::unordered_map<uint64_t, LosingPositionInfo>;
+	map_type losing_position_info;
 
 	void Position::reflect_if_necessary() {
 		if (height == 0) return;
@@ -81,40 +84,124 @@ namespace Chomp {
 	}
 
 	PositionInfo Position::info() const {
-		return position_info[hash()];
-	}
+		if (height == 0) return { .is_winning=true, .dte=0 };
 
-	void hash_positions(int max_squares, int bound_width, int bound_height) {
-		Position p;
-		p.make_empty();
+		auto losing_position = losing_position_info.find(hash());
+		if (losing_position == losing_position_info.end()) {
+			// Winning position
+			int min_dte = INT_MAX;
 
-		// Empty position is winning
-		PositionInfo empty_position = { .is_winning = true, .dte = 0 };
-		position_info[p.hash()] = empty_position;
+			for_each_cut([&] (Cut c) {
+				Position cutted = cut(c);
+				auto cutted_info = losing_position_info.find(cutted.hash());
 
-		get_positions_with_tiles(1, max_squares, [&] (const Position& p) {
-			bool is_winning = false;
-			int min_dte = INT_MAX; // win
-			int max_dte = 0; // loss
-
-			p.for_each_cut([&] (Cut c) {
-				Position cutted = p.cut(c);
-				PositionInfo cutted_info = position_info[cutted.hash()];
-
-				if (!cutted_info.is_winning) {
-					is_winning = true;
-					min_dte = std::min(min_dte, cutted_info.dte + 1);
-				} else {
-					max_dte = std::max(max_dte, cutted_info.dte + 1);
+				if (cutted_info != losing_position_info.end()) {
+					// For all losing cuts
+					int dte = cutted_info->second.dte;
+					min_dte = std::min(dte+1, min_dte);
 				}
 			});
 
-			PositionInfo result;
-			result.is_winning = is_winning;
-			result.dte = is_winning ? min_dte : max_dte;
+			return { .is_winning=true, .dte=min_dte };
+		} else {
+			return { .is_winning=false, .dte=losing_position->second.dte };
+		}
+	}
 
-			position_info[p.hash()] = result;
-		}, bound_width, bound_height);
+	std::atomic<int> num_positions;
+	std::atomic<int> num_winning_moves;
+	std::atomic<int> num_losing_positions;
+
+	using position_iterator = std::vector<Position>::iterator;
+	void hash_positions_over_iterator(map_type& map, position_iterator begin, position_iterator end, HashPositionOptions opts={}) {
+		std::vector<Position> cutted_list;
+
+		for (auto it = begin; it != end; ++it) {
+			Position p = *it;
+
+			bool is_winning = false;
+
+			num_positions++;
+
+			p.for_each_cut([&] (Cut c) {
+				Position cutted = p.cut(c);
+				auto cutted_info = losing_position_info.find(cutted.hash());
+
+				if (opts.compute_dte) cutted_list.push_back(cutted);
+
+				if (cutted_info != losing_position_info.end()) {
+					is_winning = true;
+					num_winning_moves++;
+				}
+			});
+
+			int max_dte = 0;
+			if (!is_winning && opts.compute_dte) {
+				for (Position& cutted : cutted_list) {
+					int dte = cutted.info().dte;
+
+					max_dte = std::max(dte+1, max_dte);
+				}
+			}
+
+			if (!is_winning) {
+				map[p.hash()] = { .dte = max_dte };
+				num_losing_positions++;
+			}
+
+			cutted_list.clear();
+		}
+	}
+
+	void hash_positions(int max_squares, int bound_width, int bound_height, HashPositionOptions opts) {
+		for (int n = 1; n <= max_squares; ++n) {
+			std::vector<Position> positions;
+			get_positions_with_n_tiles(n, [&] (const Position& p) {
+				positions.push_back(p);
+			}, bound_width, bound_height);
+
+			num_winning_moves = num_positions = num_losing_positions = 0;
+
+			size_t size = positions.size();
+			if (size > 10000) {
+				const int NUM_THREADS = 8;
+				std::vector<std::thread> threads;
+
+				// Divvy up the work, with size/NUM_THREADS each
+				int positions_per_thread = size / NUM_THREADS;
+
+				position_iterator begin = positions.begin();
+				//map_type map1, map2, map3, map4;
+				std::vector<map_type*> maps;
+
+				for (int i = 0; i < NUM_THREADS; ++i) {
+					position_iterator end = (i == NUM_THREADS - 1) ? positions.end() : (begin + positions_per_thread);
+					maps.push_back(new map_type{});
+
+					std::thread thread ([=] (map_type* map) {
+						hash_positions_over_iterator(*map, begin, end);
+					}, maps.back());
+
+					threads.push_back(std::move(thread));
+
+					begin = end;
+				}
+
+				for (auto &thread : threads) {
+					thread.join();
+				}
+
+				for (map_type* map : maps) {
+					losing_position_info.merge(*map);
+					delete map;
+				}
+			} else {
+				hash_positions_over_iterator(losing_position_info, positions.begin(), positions.end(), opts);
+			}
+
+			//std::printf("%i\t%f\n", n, num_winning_moves / (float) num_positions);
+			std::printf("%i %i %i %i\n", n, (int)num_positions, (int)num_winning_moves, (int)num_losing_positions);
+		}
 	}
 
 	std::vector<Cut> Position::winning_cuts() const {
@@ -254,7 +341,6 @@ namespace Chomp {
 		return ss.str();
 	}
 
-// TODO: make work for labels greater than 9
 	// TODO: make work for labels greater than 9
 	std::string Position::to_string(PositionFormatterOptions opts) const {
 		// The basic unit of printing is a rectangle of size tile_width x tile_height, which we store as a sequence of chars
