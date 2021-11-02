@@ -12,7 +12,7 @@ int main () {
 
 	using Position = Chomp::Position;
 
-	constexpr int dimension = 52;
+	constexpr int dimension = 50;
 
 	FILE* out = fopen("files/out.txt", "w");
 
@@ -24,7 +24,11 @@ int main () {
 	// p.reflect_if_necessary();
 	// fprintf(out, "%s\n", p.to_string().c_str());
 
-	Chomp::hash_positions(dimension, dimension, dimension);
+	Chomp::load("files/raw/50.bin");
+
+	// Chomp::hash_positions(dimension, dimension, dimension);
+
+	// Chomp::store("files/raw/50.bin");
 
 	int winning_moves = 0, positions = 0;
 
