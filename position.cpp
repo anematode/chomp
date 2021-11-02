@@ -142,21 +142,23 @@ namespace Chomp {
 		return cut(c.first, c.second);
 	}
 
-	map_type losing_position_info;
+	std::vector<map_type*> losing_position_info {new map_type{}};
 
 	PositionInfo Position::info() const {
 		if (height == 0) return { .is_winning=true, .dte=0 };
 
-		auto losing_position = losing_position_info.find(canonical_hash());
-		if (losing_position == losing_position_info.end()) {
+		auto map = losing_position_info[square_count()];
+		auto losing_position = map->find(canonical_hash());
+		if (losing_position == map->end()) {
 			// Winning position
 			int min_dte = INT_MAX;
 
 			for_each_cut([&] (Cut c) {
 				Position cutted = cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+				auto map = losing_position_info[cutted.square_count()];
+				auto cutted_info = map->find(cutted.canonical_hash());
 
-				if (cutted_info != losing_position_info.end()) {
+				if (cutted_info != map->end()) {
 					// For all losing cuts
 					int dte = cutted_info->second.dte;
 					min_dte = std::min(dte+1, min_dte);
@@ -187,11 +189,14 @@ namespace Chomp {
 
 			p.for_each_cut([&] (Cut c) {
 				Position cutted = p.cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+				int cnt = cutted.square_count();
+
+				auto m = losing_position_info[cnt];
+				auto cutted_info = m->find(cutted.canonical_hash());
 
 				if (opts.compute_dte) cutted_list.push_back(cutted);
 
-				if (cutted_info != losing_position_info.end()) {
+				if (cutted_info != m->end()) {
 					is_winning = true;
 					num_winning_moves += multiplicity;
 				}
@@ -220,6 +225,11 @@ namespace Chomp {
 		const int NUM_THREADS = 8;
 
 		std::vector<Position> positions;
+
+		int n = 1; // number of squares currently being processed
+		map_type* losing_map;
+
+		losing_position_info.resize(std::max(losing_position_info.size(), (unsigned long)max_squares));
 
 		auto process_positions = [&] {
 			size_t size = positions.size();
@@ -252,16 +262,17 @@ namespace Chomp {
 				}
 
 				for (map_type* map : maps) {
-					losing_position_info.merge(*map);
+					losing_map->merge(*map);
 					delete map;
 				}
 			} else {
-				hash_positions_over_iterator(losing_position_info, positions.begin(), positions.end(), opts);
+				hash_positions_over_iterator(*losing_map, positions.begin(), positions.end(), opts);
 			}
 		};
 
-		for (int n = 1; n <= max_squares; ++n) {
+		for (; n <= max_squares; ++n) {
 			num_winning_moves = num_positions = num_losing_positions = 0;
+			losing_map = new map_type{};
 
 			get_positions_with_n_tiles(n, [&] (const Position& p) {
 				positions.push_back(p);
@@ -276,6 +287,9 @@ namespace Chomp {
 			// Process remaining positions
 			process_positions();
 			positions.clear();
+
+			// Add map to list
+			losing_position_info[n] = losing_map;
 
 			//std::printf("%i\t%f\n", n, num_winning_moves / (float) num_positions);
 			std::printf("%i %i %i %i\n", n, (int)num_positions, (int)num_winning_moves, (int)num_losing_positions);

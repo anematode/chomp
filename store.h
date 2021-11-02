@@ -3,8 +3,8 @@
 
 namespace Chomp {
 	namespace store {
-		void write_map(const map_type &map, const char *filename);
+		void write_map(const std::vector<map_type*> &map, const char *filename);
 
-		void read_map(map_type &map, const char *filename);
+		void read_map(std::vector<map_type*> &map, const char *filename);
 	}
 }
