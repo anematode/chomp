@@ -7,7 +7,7 @@
 
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
-#define INT_MAX std::numeric_limits<int>::max()
+#define INT_MAX 2147483647
 
 // Get the file and line number
 #define FILE_LINE __FILE__ ":" STR(__LINE__) ": "

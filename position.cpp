@@ -1,12 +1,13 @@
 #include <position.hpp>
 #include <store.hpp>
+#include <datastructs.hpp>
 #include <unordered_map>
 #include <thread>
 #include <memory>
 #include <atomic>
 
 #undef INT_MAX
-#define INT_MAX std::numeric_limits<int>::max()
+#define INT_MAX 2147483647
 
 namespace Chomp {
 	std::ostream &operator<<(std::ostream &os, const Position &p) {
@@ -143,30 +144,39 @@ namespace Chomp {
 	}
 
 	map_type losing_position_info;
+	Chomp::datastructs::BloomFilter bloom_losing_position_info;
 
 	PositionInfo Position::info() const {
 		if (height == 0) return { .is_winning=true, .dte=0 };
 
-		auto losing_position = losing_position_info.find(canonical_hash());
-		if (losing_position == losing_position_info.end()) {
-			// Winning position
-			int min_dte = INT_MAX;
+		uint64_t canonical_hash = this->canonical_hash();
 
-			for_each_cut([&] (Cut c) {
-				Position cutted = cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
+		bool definitely_contains = bloom_losing_position_info.probably_contains(canonical_hash);
+
+		if (definitely_contains) {
+			auto losing_position = losing_position_info.find(canonical_hash);
+
+			if (losing_position != losing_position_info.end()) return { .is_winning=false, .dte=losing_position->second.dte };
+		}
+
+		// Winning position
+		int min_dte = INT_MAX;
+
+		for_each_cut([&] (Cut c) {
+			Position cutted = cut(c);
+			canonical_hash = cutted.canonical_hash();
+			if (bloom_losing_position_info.probably_contains(canonical_hash)) {
+				auto cutted_info = losing_position_info.find(canonical_hash);
 
 				if (cutted_info != losing_position_info.end()) {
 					// For all losing cuts
 					int dte = cutted_info->second.dte;
 					min_dte = std::min(dte+1, min_dte);
 				}
-			});
+			}
+		});
 
-			return { .is_winning=true, .dte=min_dte };
-		} else {
-			return { .is_winning=false, .dte=losing_position->second.dte };
-		}
+		return { .is_winning=true, .dte=min_dte };
 	}
 
 	std::atomic<int> num_positions;
@@ -174,7 +184,7 @@ namespace Chomp {
 	std::atomic<int> num_losing_positions;
 
 	using position_iterator = std::vector<Position>::iterator;
-	void hash_positions_over_iterator(map_type& map, position_iterator begin, position_iterator end, HashPositionOptions opts={}) {
+	void hash_positions_over_iterator(map_type& map, std::vector<uint64_t>& bloomqueue, position_iterator begin, position_iterator end, HashPositionOptions opts={}) {
 		std::vector<Position> cutted_list;
 
 		for (auto it = begin; it != end; ++it) {
@@ -187,13 +197,18 @@ namespace Chomp {
 
 			p.for_each_cut([&] (Cut c) {
 				Position cutted = p.cut(c);
-				auto cutted_info = losing_position_info.find(cutted.canonical_hash());
-
+				
 				if (opts.compute_dte) cutted_list.push_back(cutted);
 
-				if (cutted_info != losing_position_info.end()) {
-					is_winning = true;
-					num_winning_moves += multiplicity;
+				uint64_t canonical_hash = cutted.canonical_hash();
+
+				if (bloom_losing_position_info.probably_contains(canonical_hash)) {
+					auto cutted_info = losing_position_info.find(canonical_hash);
+
+					if (cutted_info != losing_position_info.end()) {
+						is_winning = true;
+						num_winning_moves += multiplicity;
+					}
 				}
 			});
 
@@ -207,7 +222,10 @@ namespace Chomp {
 			}
 
 			if (!is_winning) {
-				map[p.canonical_hash()] = { .dte = max_dte };
+				uint64_t h = p.canonical_hash();
+				map[h] = { .dte = max_dte };
+				bloomqueue.push_back(h);
+				// bloom_losing_position_info.query(h);
 				num_losing_positions += multiplicity;
 			}
 
@@ -233,15 +251,19 @@ namespace Chomp {
 				position_iterator begin = positions.begin();
 				//map_type map1, map2, map3, map4;
 				std::vector<map_type*> maps;
+				std::vector<std::vector<uint64_t>*> bloomqueues;
 
 				for (int i = 0; i < NUM_THREADS; ++i) {
 					position_iterator end = (i == NUM_THREADS - 1) ? positions.end() : (begin + positions_per_thread);
 					map_type* thread_map = new map_type{};
-					maps.push_back(thread_map);
+					std::vector<uint64_t>* thread_bloomqueue;
 
-					std::thread thread ([=] (map_type* map) {
-						hash_positions_over_iterator(*map, begin, end);
-					}, maps.back());
+					maps.push_back(thread_map);
+					bloomqueues.push_back(thread_bloomqueue);
+
+					std::thread thread ([=] (map_type* map, std::vector<uint64_t>* bloomqueue) {
+						hash_positions_over_iterator(*map, *bloomqueue, begin, end);
+					}, maps.back(), bloomqueues.back());
 
 					threads.push_back(std::move(thread));
 
@@ -257,8 +279,22 @@ namespace Chomp {
 
 					delete map;
 				}
+
+				for (std::vector<uint64_t>* bloomqueue : bloomqueues) {
+					for (uint64_t hash : *bloomqueue) {
+						bloom_losing_position_info.insert(hash);
+					}
+
+					delete bloomqueue;
+				}
 			} else {
-				hash_positions_over_iterator(losing_position_info, positions.begin(), positions.end(), opts);
+				std::vector<uint64_t> bloomqueue;
+				
+				hash_positions_over_iterator(losing_position_info, bloomqueue, positions.begin(), positions.end(), opts);
+
+				for (uint64_t hash : bloomqueue) {
+					bloom_losing_position_info.insert(hash);
+				}
 			}
 		};
 

@@ -12,9 +12,13 @@ add_executable(chomp
         position.hpp
         store.cpp
         store.hpp
+        datastructs.cpp
+        datastructs.hpp
         parallel_hashmap/meminfo.h
         parallel_hashmap/phmap.h
         parallel_hashmap/phmap_bits.h
         parallel_hashmap/phmap_dump.h
         parallel_hashmap/phmap_utils.h
         parallel_hashmap/phmap_fwd_decl.h)
+
+target_link_libraries(chomp -lpthread)
