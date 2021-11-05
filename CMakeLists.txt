@@ -5,15 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 
 include_directories(.)
 
-set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall -Wextra")
+set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall -Wextra -std=c++20")
 add_executable(chomp
         main.cpp
+        utils.hpp
         position.cpp
         position.hpp
-        store.cpp
-        store.hpp
-        datastructs.cpp
-        datastructs.hpp
         parallel_hashmap/meminfo.h
         parallel_hashmap/phmap.h
         parallel_hashmap/phmap_bits.h

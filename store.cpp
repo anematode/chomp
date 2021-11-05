@@ -5,7 +5,7 @@
 * @Last Modified time: 2021-11-01 20:00:11
 */
 
-#include <position.hpp>
+#include <old_position.hpp>
 
 namespace Chomp {
 	namespace store {

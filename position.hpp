@@ -1,288 +1,372 @@
-//
-// Created by Timothy Herchen on 10/31/21.
-//
+#pragma once
 
-#ifndef CHOMP_POSITION_H
-#define CHOMP_POSITION_H
-
-#define STR_HELPER(x) #x
-#define STR(x) STR_HELPER(x)
-#define INT_MAX 2147483647
-
-// Get the file and line number
-#define FILE_LINE __FILE__ ":" STR(__LINE__) ": "
-
-#define DEBUG 0
-
-#include <ostream>
-#include <sstream>
-#include <iomanip>
-#include <vector>
-#include <string>
-#include <initializer_list>
 #include <iostream>
+
+#include <array>
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
+#include <sstream>
+#include <string>
 #include <type_traits>
-#include <parallel_hashmap/phmap.h>
+#include <utility>
+#include "utils.hpp"
+
+#define FILE_LINE CHOMP_FILE_LINE
+#define DEBUG CHOMP_DEBUG_VARS
+#define DEBUG_NB CHOMP_DEBUG_VARS_NO_BRACES
 
 namespace Chomp {
-	// Globally defined max height
-	constexpr int MAX_HEIGHT = 100;
-
-	// Options for formatting to string
-	struct PositionFormatterOptions
-	{
-		// Size of each tile in characters
-		int tile_width = 3;
-		int tile_height = 2;
-		// If positive, used for tile_width/tile_height
-		int tile_size = -1;
-
-		// Minimum number of tiles to display in each direction
-		int min_width = 3;
-		int min_height = 3;
-
-		// Separation in newlines and spaces, respectively, between tiles in each direction
-		int horizontal_sep = 1;
-		int vertical_sep = 1;
-		// If positive, used for vertical_sep/horizontal_sep
-		int sep = -1;
-
-		// Character for when a tile is filled or not filled
-		char tile_char = 'X';
-		char empty_char = ' ';
-
-		// Show labels
-		bool show_labels = true;
-
-		int get_horizontal_sep();
-		int get_vertical_sep();
-		int get_tile_width();
-		int get_tile_height();
-
-		static void set_default(PositionFormatterOptions opts);
+	// Orientation of a position relative to the "canonical" position, which is flipped about the main diagonal. The
+	// canonical position can be thought of as having the lowest "center of mass". For example:
+	//     #              #              ##
+	//     ##             ###            ##
+	//     ###            ###            ###
+	// Symmetrical     Canonical     Not canonical
+	// Every position has a canonical form; symmetrical positions are always canonical. The multiplicity of a position is
+	// 1 when symmetrical and 2 when not symmetrical. Generally the user treats a Position as immutable, though there
+	// are a few convenience functions that mutate the position in-place
+	enum class Orientation {
+		CANONICAL = 0,
+		NOT_CANONICAL = 1,
+		SYMMETRIC = 2,
+		UNKNOWN = 3 // uncalculated
 	};
 
-	struct HashPositionOptions
-	{
-		bool compute_dte=false;
-		bool compute_winning_moves=false;
-	};
+	namespace {
+		using O = Orientation;
 
-	// Orientation of the position, relative to the canonical reflection. Example:
-	//     ##                #
-	//     ##                ###
-	//     ###               ###
-	// not canonical      canonical
-	// Symmetrical positions are always canonical
-	enum class Orientation
-	{
-		CANONICAL,
-		SYMMETRICAL,
-		NOT_CANONICAL,
-		UNKNOWN
-	};
+		bool is_orientation_calculated(O o) noexcept {
+			return o != O::UNKNOWN;
+		}
 
-  inline PositionFormatterOptions default_formatter_options;
+		// Silently fails when passed UNKNOWN
+		bool is_orientation_canonical(O o) noexcept {
+			return !(static_cast<int>(o) & 1);
+		}
 
-  struct LosingPositionInfo {
-  	int dte;
-  };
+		// 2 when asymmetric, 1 when symmetric. Silently fails when passed UNKNOWN
+		int orientation_multiplicity(Orientation o) noexcept {
+			return 2 - (o == O::SYMMETRIC);
+		}
 
-	using map_type = phmap::parallel_flat_hash_map<uint64_t, LosingPositionInfo>;
-
-	struct PositionInfo {
-		bool is_winning;
-		int dte; // distance to game end, assuming optimal play
-	};
-
-	using Cut = std::pair<int, int>;
-
-	/**
-	 * Stores a given board position as an array of the number of tiles in each row, from bottom to top
-	 * @tparam MAX_HEIGHT The tallest allowed board
-	 */
+		// Convenience alias for converting integer to string (wishing I had std::format!!)
+		const auto& str = static_cast<std::string(*)(int)>(std::to_string);
+	}
+	
+	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
+	// variable. The empty position has a height of 0.
+	template<int MAX_HEIGHT>
 	class Position {
+		static_assert(1 <= MAX_HEIGHT && MAX_HEIGHT <= 1000,
+		              "MAX_HEIGHT should be between 1 and 1000. To analyze boards like 3 by 2000, use a lower max height.");
+
+		using rows_type = std::array<int, MAX_HEIGHT>;
+
 	public:
-		// Number of squares per row
-		int rows[MAX_HEIGHT];
-		// Number of non-zero rows
-		int height;
-		// Orientation of the position
-		Orientation o = Orientation::UNKNOWN;
+		Position() = default;
+		~Position() = default;
 
-		Position();
-		Position(const std::initializer_list<int>&);
-		Position(const Position&); // copy constructor
+		// We only need to copy the first "height" rows
+		Position(const Position& p) {
+			_height = p._height, _orientation = p._orientation, _square_count = p._square_count;
+			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
+		}
 
-		void make_empty();
+		Position& operator=(const Position& p) {
+			_height = p._height, _orientation = p._orientation, _square_count = p._square_count;
+			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 
-		bool is_legal() const;
-		void normalize_height();
+			return *this;
+		}
 
-		std::string to_string(PositionFormatterOptions=default_formatter_options) const;
-		std::string list() const;
+		// Convenience constructor; for example, Position{2, 2, 1} gives
+		// #
+		// ##
+		// ##
+		Position(std::initializer_list<int> rows) {
+			if (rows.size() > MAX_HEIGHT) throw std::runtime_error(FILE_LINE + "Initializer list is too long; "
+				+ DEBUG_NB(MAX_HEIGHT) + ", list has size " + str(rows.size()));
 
-		int get_height() const;
-		int get_width() const;
+			// Initialize rows
+			std::copy(std::begin(rows), std::end(rows), std::begin(_rows));
 
-		int square_count() const;
-		uint64_t hash() const;
-		uint64_t canonical_hash() const;
+			normalize_height(rows.size());
+			if (!is_legal()) throw std::runtime_error(FILE_LINE + "Invalid initializer list: " + list());
+			_invalidate_cached(); // ensure square_count and orientation are correct
+		}
 
-		Position cut (int row, int col) const;
-		Position cut (Cut) const;
+		// Accessors (note that orientation and square_count values are cached)
+		int height() const noexcept { return _height; }
+		int width() const noexcept { return _rows[0]; }
+		rows_type rows() const {
+			rows_type ret{}; // zero-initialized
+			std::copy(_rows, _rows + _height, ret);
+			return ret;
+		}
 
-		bool is_cut_winning (int row, int col) const;
-		PositionInfo cut_info (int row, int col) const;
-		void reflect_if_necessary();
+		// Orientation and square_count will be cached
+		Orientation orientation() {
+			if (orientation_calculated()) return _orientation;
+			return _orientation = _compute_orientation();
+		}
+		int square_count() {
+			if (square_count_calculated()) return _square_count;
+			return _square_count = _compute_square_count();
+		}
 
-		template <typename Lambda>
-		void for_each_cut(Lambda) const;
+		// Is the position canonical (including symmetric), etc.
+		bool is_canonical() { return is_orientation_canonical(orientation()); }
+		bool is_symmetric() { return orientation() == O::SYMMETRIC; }
+		bool is_empty() const noexcept { return _height == 0; }
 
-		static Position starting_rectangle(int width, int height);
-		static Position empty_position();
+		// 0-indexed
+		bool square_at(int row, int col) const {
+			if (row >= _height || row < 0) return false;
+			return _rows[row] >= col;
+		}
 
-		std::vector<Cut> winning_cuts() const;
-		int num_winning_cuts() const;
+		// Get the empty position
+		static Position empty_position() {
+			Position p;
+			p._height = p._rows[0] = 0; // rows[0] is set to 0 so that width is valid
+			return p;
+		}
 
-		PositionInfo info() const;
-		Orientation is_canonical();
+		// Create a rectangle with the given width and height
+		static Position starting_rectangle(int width, int height) {
+			if (width < 0 || height < 0)
+				throw std::runtime_error(FILE_LINE + "Rectangle must have nonnegative width and height, not " + DEBUG(width, height));
 
-		void make_canonical();
-		void flip_in_place();
-		Position flip();
+			if (height > MAX_HEIGHT)
+				throw std::runtime_error(FILE_LINE + "Rectangle must have a height less than " + DEBUG_NB(MAX_HEIGHT)
+					+ ", not " + DEBUG_NB(height));
 
-		Position canonical() const;
+			Position p;
+			p._height = height;
+			std::fill_n(std::begin(p._rows), height, width);
+			p.orientation = (width < height) ? O::NOT_CANONICAL : ((width == height) ? O::SYMMETRIC : O::CANONICAL);
 
-	private:
-		Orientation _is_canonical() const;
-	};
+			return p;
+		}
 
-	/**
-	 * Get all positions with exactly n tiles, bounded by bound_width and bound_height (their dimensions are within those
-	 * bounds)
-	 * @tparam MAX_HEIGHT
-	 * @tparam Lambda Type of callback function
-	 * @param n Number of tiles
-	 * @param callback Callback function accepting a single parameter, the position (as a const ref)
-	 * @param bound_width -1 if unbounded; otherwise, the bound on the width
-	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
-	 * @param only_canonical If true, call lambda only with the canonical solutions (approximately half of all solutions)
-	 */
-	template<typename Lambda>
-	void get_positions_with_n_tiles(int n, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
-		static_assert(std::is_invocable_v<Lambda, const Position &>,
-		              FILE_LINE"Second parameter to get_positions_with_n_tiles must be a function that accepts a Position");
+		// Set the height to the appropriate value based on the row values (last non-zero element), with a maximum value of
+		// height_bound
+		void normalize_height(int height_bound=MAX_HEIGHT) {
+			height_bound = std::min(MAX_HEIGHT, height_bound);
 
-		if (n < 0)
-			throw new std::runtime_error(FILE_LINE
-			                             "n must be a positive integer");
+			// find first zero element
+			for (_height = 0; _height < height_bound && _rows[_height]; ++_height);
+		}
 
-		if (bound_height == -1) bound_height = INT_MAX;
-		if (bound_width == -1) bound_width = INT_MAX;
+		// Is the current position a legal chomp state; note that it ignores row values beyond height
+		bool is_legal() const {
+			int prev = INT_MAX, curr;
 
-		// prevent OOB
-		bound_height = std::min(bound_height, MAX_HEIGHT);
-
-		// We start off with some position and modify it iteratively. We want the rows to sum to n, the number of rows to be
-		// less than or equal to the bound_height, and each row to be less than the bound_width. If we are determining the
-		// value of a given row r (indexing from 0 as usual), then if we give it a value of v, the maximum number of remaining
-		// tiles to place is (bound_height - r) * v and the minimum number is 0. If we have a certain number of remaining
-		// tiles to place, these bounds give us information on how many we should try.
-
-		Position p; // position to manipulate and be passed to the lambda
-		p.make_empty();
-		int *rows = p.rows;
-
-		// Index we are currently modifying
-		int i = 0;
-
-		// Tiles remaining to be placed
-		int remaining = n;
-
-		while (true) {
-			int rows_remaining = bound_height - i;
-
-			int current = rows[i]; // starts at 0
-			remaining += current;
-
-			// ceiling division of remaining and rows_remaining; we need to place at least this many squares
-			int min_place = (remaining + rows_remaining - 1) / rows_remaining;
-
-			// Upper bound on how many to place
-			int max_place = std::min((i == 0) ? remaining : rows[i - 1], bound_width);
-
-			if (current >= max_place || max_place < min_place) {
-				// backtrack, though this shouldn't happen very often
-				rows[i--] = 0;
-
-				if (i == -1) break;
-				continue;
-			} else if (current < min_place) {
-				current = min_place;
-			} else {
-				// min_place <= current < max_place
-				current++;
+			for (int i = 0; i < _height; ++i) {
+				curr = _rows[i];
+				if (curr > prev) return false;
+				prev = curr;
 			}
 
-			rows[i] = current;
-			remaining -= current;
+			return true;
+		}
 
-			if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
-				p.height = (current == 0) ? i : (i + 1);
-				// Sets the canonical status of p
-				if (!only_canonical || (p.is_canonical(), (p.o == Orientation::CANONICAL || p.o == Orientation::SYMMETRICAL)))
-					callback(p);
-				p.o = Orientation::UNKNOWN;
+		// Return the position as a readable list of row values
+		std::string list() const {
+			std::stringstream ss;
+			for (int i = 0; i < _height; ++i) {
+				ss << _rows[i];
+				if (i != _height - 1)
+					ss << ' ';
+			}
+			return ss.str();
+		}
 
-				rows[i--] = 0;
+		bool orientation_calculated() { return is_orientation_calculated(_orientation); }
+		bool square_count_calculated() { return _square_count != -1; }
+
+		// Get all positions with n tiles, with a given max width and height (-1 if unspecified). Positions are sent to a
+		// callback function, which must accept Position& p. Throws if it should logically return results outside the
+		// range of MAX_HEIGHT. Results false if the function was called w/ all positions, and true otherwise. The callback
+		// function may return a boolean value; if true, the function will be terminated early. If only_canonical is set to
+		// true, only canonical (including symmetrical) positions are calculated and returned, which is roughly half the
+		// number of total positions
+		template <typename Lambda>
+		static bool positions_with_n_tiles (int n, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
+
+			static_assert(std::is_invocable_v<Lambda, Position&>,
+			        "Callback function must be invocable with a single parameter Position&.");
+
+			using callback_result = std::invoke_result_t<Lambda, Position&>;
+			constexpr bool callback_returns_void = std::is_void_v<callback_result>;
+			constexpr bool callback_returns_bool = std::is_same_v<callback_result, bool>;
+
+			static_assert(callback_returns_void || callback_returns_bool,
+			        "Callback function must either be void or return a boolean");
+
+			if (n < 0) throw std::runtime_error(FILE_LINE + "n must be a positive integer, not " + DEBUG(n));
+			if (bound_width < -1 || bound_height < -1)
+				throw std::runtime_error(
+								FILE_LINE + "bound_width and bound_height must be positive integers or -1, not " + DEBUG(bound_width, bound_height));
+			if (n == 0 || bound_width == 0 || bound_height == 0) {
+				Position p = empty_position();
+				callback(p); // expects an l value
+
+				return false;
+			}
+
+			if (bound_width == -1) bound_width = n;
+			if (bound_height == -1) bound_height = n;
+
+			// Now guaranteed that n, bound_width, bound_height > 0
+
+			// Logical bounds
+			int logical_bound_height = n, logical_bound_width = n;
+			if (only_canonical) {
+				// The tallest canonical position is an L. If n is odd, it has width and height (n-1)/2; if n is even, it has
+				// height n/2 - 1. For example:
+				//  #          #
+				//  #          #
+				//  ###        #####
+				// n = 5       n = 6
+
+				logical_bound_height = (n % 2 == 0) ? (n / 2 - 1) : ((n - 1) / 2);
+			}
+
+			if (logical_bound_height > MAX_HEIGHT)
+				throw std::runtime_error(
+								FILE_LINE + "Call to positions_with_n_tiles will generate positions taller than "
+								+ DEBUG(MAX_HEIGHT) + "; " + DEBUG(n, bound_width, bound_height, only_canonical));
+
+			// Actual bound width and bound height to be used
+			bound_width = std::min(logical_bound_width, bound_width);
+			bound_height = std::min(logical_bound_height, bound_height);
+
+			// We start off with some position and modify it iteratively. We want the rows to sum to n, the number of rows to be
+			// less than or equal to the bound_height, and each row to be less than the bound_width. If we are determining the
+			// value of a given row r (indexing from 0 as usual), then if we give it a value of v, the maximum number of remaining
+			// tiles to place is (bound_height - r) * v and the minimum number is 0. If we have a certain number of remaining
+			// tiles to place, these bounds give us information on how many we should try.
+
+			Position p = empty_position(); // position to manipulate in place and be passed to the lambda
+			p._make_internally_empty();    // we require the rows array to be all 0s (the constructor doesn't initialize it)
+
+			rows_type rows = p._rows;
+
+			// Index we are currently modifying
+			int i = 0;
+			// Tiles remaining to be placed
+			int remaining = n;
+
+			while (true) {
+				int rows_remaining = bound_height - i;
+
+				int current = rows[i]; // starts at 0
 				remaining += current;
 
-				if (i == -1) break;
-			} else {
-				// Some tiles remain to be placed; continue if possible
-				i = std::min(i + 1, bound_height - 1);
+				// ceiling division of remaining and rows_remaining; we need to place at least this many squares
+				int min_place = (remaining + rows_remaining - 1) / rows_remaining;
+
+				// Upper bound on how many to place
+				int max_place = std::min((i == 0) ? remaining : rows[i - 1], bound_width);
+
+				if (current >= max_place || max_place < min_place) {
+					// backtrack, though this shouldn't happen very often
+					rows[i--] = 0;
+
+					if (i == -1) break;
+					continue;
+				} else if (current < min_place) {
+					current = min_place;
+				} else {
+					// min_place <= current < max_place
+					current++;
+				}
+
+				rows[i] = current;
+				remaining -= current;
+
+				if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
+					p._height = (current == 0) ? i : (i + 1);
+
+					if (!only_canonical || p.is_canonical()) {
+						if constexpr (callback_returns_bool) {
+							if (callback(p)) return true;
+						} else {
+							callback(p);
+						}
+					}
+
+					p._invalidate_cached();
+
+					rows[i--] = 0;
+					remaining += current;
+
+					if (i == -1) break;
+				} else {
+					// Some tiles remain to be placed; continue if possible
+					i = std::min(i + 1, bound_height - 1);
+				}
 			}
 		}
-	}
 
-	/**
-	 * Get all positions with n tiles or less, bounded by bound_width and bound_height (their dimensions are within those
-	 * bounds). The order in which the positions are given is guaranteed to be in order of number of squares.
-	 * @tparam MAX_HEIGHT
-	 * @tparam Lambda Type of callback function
-	 * @param n Number of tiles
-	 * @param callback Callback function accepting a single parameter, the position (as a const ref)
-	 * @param bound_width -1 if unbounded; otherwise, the bound on the width
-	 * @param bound_height -1 if unbounded; otherwise, the bound on the height, superseded by MAX_HEIGHT if necessary
-	 */
-	template<typename Lambda>
-	void get_positions_with_tiles(int min, int max, Lambda callback, int bound_width = -1, int bound_height = -1, bool only_canonical=false) {
-		for (int i = min; i < max; ++i) {
-			if (DEBUG)
-				std::printf("Getting positions with %i tiles\n", i);
-			get_positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical);
-		}
-	}
+	public:
+		rows_type _rows;
+		int _height;
 
-	template <typename Lambda>
-	void Position::for_each_cut(Lambda callback) const {
-		for (int i = 0; i < height; ++i) {
-			int cnt = rows[i];
+		// We cache the orientation and square count
+		Orientation _orientation;
+		int _square_count;
 
-			for (int col = 0; col < cnt; ++col) {
-				callback({ i, col });
+		Orientation _compute_orientation() {
+			// Easy and common criteria
+			if (_rows[0] > _height) return O::CANONICAL;
+			if (_rows[0] < _height) return O::NOT_CANONICAL;
+			if (_height == 0) return O::SYMMETRIC;
+
+			// We calculate the number of tiles in each column and compare sequentially to rows[col]
+			int col = 1, min_height = 0;
+			for (int i = _height - 1; i >= min_height; --i) {
+				int r = _rows[i];
+				while (r > col) {
+					// i is the number of tiles in column col
+					// compare col and row_compare
+					if (i + 1 > _rows[col])
+						return O::NOT_CANONICAL;
+					else if (i + 1 < _rows[col])
+						return O::CANONICAL;
+
+					col++;
+				}
 			}
+
+			return O::SYMMETRIC; // if all are equal, symmetrical
 		}
-	}
 
-	void hash_positions(int max_squares, int bound_width=-1, int bound_height=-1, HashPositionOptions={});
+		int _compute_square_count() {
+			int sum = 0;
+			for (int i = 0; i < _height; ++i)
+				sum += _rows[i];
+			return sum;
+		}
 
-	void store_positions(const std::string& filename);
-	void store_positions(const char* filename);
+		// Internal functions used when manipulating Positions in place
+		void _invalidate_cached () { _orientation = O::UNKNOWN; _square_count = -1; }
+		void _make_internally_empty() { std::fill(_rows.begin(), _rows.end(), 0); }
+	};
 
-	void load_positions(const std::string& filename);
-	void load_positions(const char* filename);
+	// Let p(n) be the partition function. Let p(N, M; n) be the number of positions with n tiles in an MxN rectangle.
+	// Clearly p(n) >= p(N, M; n) and if N,M <= n, p(n) = p(N, M; n). p(N,M;n) = p(N,M-1;n)+p(N-1,M,n-M), and
+	// p(N,M;n)=p(M,N;n).
+
+	using p_count_type = uint64_t;
+
+	p_count_type partition_function(int n);
+	// A value of -1 in any of the last three positions indicates it should be unbounded
+	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 }
 
-#endif //CHOMP_POSITION_H
+#undef FILE_LINE
+#undef DEBUG
+#undef DEBUG_NB
