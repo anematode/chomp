@@ -3,3 +3,7 @@
 //
 
 #include "position_atlas.hpp"
+
+namespace Chomp {
+
+}

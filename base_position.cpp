@@ -1,4 +1,4 @@
-#include "position.hpp"
+#include "base_position.hpp"
 
 #include <iomanip>
 #include <vector>
@@ -10,6 +10,40 @@
 #define DEBUG_NB CHOMP_DEBUG_VARS_NO_BRACES
 
 namespace Chomp {
+	/**
+	 * HASHING
+	 */
+	const uint64_t HASH_PRIME = 179424673;
+
+	hash_type hash_position(int* rows, int height) {
+		hash_type hash = 0;
+
+		for (int i = 0; i < height; ++i) {
+			hash += rows[i];
+			hash *= HASH_PRIME;
+		}
+
+		return hash;
+	}
+
+	// Return the hash of the flipped position
+	hash_type hash_flipped_position(int* rows, int height) {
+		int col = 0;
+		hash_type hash = 0;
+
+		for (int i = height - 1; i >= 0; --i) {
+			int row = rows[i];
+
+			while (row > col) {
+				hash += i + 1;
+				hash *= HASH_PRIME;
+				col++;
+			}
+		}
+
+		return hash;
+	}
+
 	/**
 	 * COMBINATORICS
 	 */

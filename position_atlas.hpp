@@ -1,7 +1,8 @@
 #pragma once
 
-namespace Chomp {
+#include "base_position.hpp"
 
+namespace Chomp {
 	class PositionInfo {
 		bool is_winning;
 		int dte;
@@ -13,10 +14,7 @@ namespace Chomp {
 	// losing positions may sometimes only be stored
 	template<int MAX_HEIGHT>
 	class Atlas {
-
-		class Position  {
-
-		};
+		using Position = BasePosition<MAX_HEIGHT>;
 
 	private:
 		// Hashed all positions with (width, height) less than this

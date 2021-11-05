@@ -2,13 +2,11 @@
 // Created by Timothy Herchen on 10/31/21.
 //
 
-#include "position.hpp"
+#include "position_atlas.hpp"
 #include <iostream>
 #include <chrono>
 
 int main () {
-	int square_count = 0;
-
 	Chomp::PositionFormatOptions::set_default("austere");
 
 	using Position = Chomp::Position<15>;

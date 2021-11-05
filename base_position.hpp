@@ -10,6 +10,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 #include "utils.hpp"
 
 #define FILE_LINE CHOMP_FILE_LINE
@@ -24,7 +25,7 @@ namespace Chomp {
 	//     ###            ###            ###
 	// Symmetrical     Canonical     Not canonical
 	// Every position has a canonical form; symmetrical positions are always canonical. The multiplicity of a position is
-	// 1 when symmetrical and 2 when not symmetrical. Generally the user treats a Position as immutable, though there
+	// 1 when symmetrical and 2 when not symmetrical. Generally the user treats a BasePosition as immutable, though there
 	// are a few convenience functions that mutate the position in-place
 	enum class Orientation {
 		CANONICAL = 0,
@@ -40,7 +41,6 @@ namespace Chomp {
 		POTENTIALLY_WINNING
 	};
 
-	using hash_type = uint64_t;
 	using Cut = std::pair<int, int>;
 
 	namespace {
@@ -133,38 +133,49 @@ namespace Chomp {
 
 	inline PositionFormatOptions default_format_options;
 	std::string _position_to_string (int* rows, int height, PositionFormatOptions opts);
+	
+	using hash_type = uint64_t;
+	hash_type unevaluated_hash = -1;
+
+	hash_type hash_position(const int* rows, int height);
+	hash_type hash_flipped_position(const int* rows, int height); // used to get the canonical hash
+
+	template<int MAX_HEIGHT>
+	class Atlas; // forward declaration
 
 	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
 	// variable. The empty position has a height of 0.
 	template<int MAX_HEIGHT>
-	class Position {
+	class BasePosition {
 		static_assert(1 <= MAX_HEIGHT && MAX_HEIGHT <= 1000,
 		              "MAX_HEIGHT should be between 1 and 1000. To analyze boards like 3 by 2000, use a lower max height.");
 
 		using rows_type = std::array<int, MAX_HEIGHT>;
 
 	public:
-		Position() = default;
-		~Position() = default;
+		BasePosition() = default;
+		~BasePosition() = default;
 
 		// We only need to copy the first "height" rows
-		Position(const Position& p) {
-			_height = p._height, _orientation = p._orientation, _square_count = p._square_count;
+		BasePosition(const BasePosition& p) : _height(p._height), _orientation(p._orientation),
+			_square_count(p._square_count), _canonical_hash(p._canonical_hash), _atlas(p._atlas) {
+			
 			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 		}
 
-		Position& operator=(const Position& p) {
+		BasePosition& operator=(const BasePosition& p) {
 			_height = p._height, _orientation = p._orientation, _square_count = p._square_count;
+			_canonical_hash = p._canonical_hash, _atlas = p._atlas;
 			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 
 			return *this;
 		}
 
-		// Convenience constructor; for example, Position{2, 2, 1} gives
+		// Convenience constructor; for example, BasePosition{2, 2, 1} gives
 		// #
 		// ##
 		// ##
-		Position(std::initializer_list<int> rows) {
+		BasePosition(std::initializer_list<int> rows) {
 			if (rows.size() > MAX_HEIGHT) throw std::runtime_error(FILE_LINE + "Initializer list is too long; "
 				+ DEBUG_NB(MAX_HEIGHT) + ", list has size " + str(rows.size()));
 
@@ -185,7 +196,7 @@ namespace Chomp {
 			return ret;
 		}
 
-		// Orientation and square_count will be cached
+		// Orientation, canonical hash and square_count will be cached
 		Orientation orientation() {
 			if (orientation_calculated()) return _orientation;
 			return _orientation = _compute_orientation();
@@ -193,6 +204,16 @@ namespace Chomp {
 		int square_count() {
 			if (square_count_calculated()) return _square_count;
 			return _square_count = _compute_square_count();
+		}
+		hash_type canonical_hash() {
+			if (canonical_hash_calculated()) return _canonical_hash;
+			return _canonical_hash = _compute_canonical_hash();
+		}
+		
+		// Don't use this, but it's here for completeness
+		[[deprecated]] hash_type hash() {
+			if (orientation_calculated() && is_canonical() && canonical_hash_calculated()) return _canonical_hash;
+			return _compute_hash();
 		}
 
 		// Is the position canonical (including symmetric), etc.
@@ -207,14 +228,14 @@ namespace Chomp {
 		}
 
 		// Get the empty position
-		static Position empty_position() {
-			Position p;
+		static BasePosition empty_position() {
+			BasePosition p;
 			p._height = p._rows[0] = 0; // rows[0] is set to 0 so that width is valid
 			return p;
 		}
 
 		// Create a rectangle with the given width and height
-		static Position starting_rectangle(int width, int height) {
+		static BasePosition starting_rectangle(int width, int height) {
 			if (width < 0 || height < 0)
 				throw std::runtime_error(FILE_LINE + "Rectangle must have nonnegative width and height, not " + DEBUG(width, height));
 
@@ -222,7 +243,7 @@ namespace Chomp {
 				throw std::runtime_error(FILE_LINE + "Rectangle must have a height less than " + DEBUG_NB(MAX_HEIGHT)
 					+ ", not " + DEBUG_NB(height));
 
-			Position p;
+			BasePosition p;
 			p._height = height;
 			std::fill_n(std::begin(p._rows), height, width);
 			p.orientation = (width < height) ? O::NOT_CANONICAL : ((width == height) ? O::SYMMETRIC : O::CANONICAL);
@@ -253,7 +274,7 @@ namespace Chomp {
 		}
 
 		// Cut a position at a given row and column
-		Position cut (int row, int col) const {
+		BasePosition cut (int row, int col) const {
 			// OOB conditions
 			if (row >= _height) return *this;
 			if (col >= width()) return *this;
@@ -261,7 +282,7 @@ namespace Chomp {
 			row = (row > 0) ? row : 0;
 			col = (col > 0) ? col : 0;
 
-			Position p;
+			BasePosition p;
 
 			for (int i = 0; i < row; ++i) p._rows[i] = _rows[i];
 
@@ -295,6 +316,13 @@ namespace Chomp {
 			return 0;
 		}
 
+		template <CutOrder order=CutOrder::DECREASING>
+		std::vector<Cut> list_cuts() const {
+			std::vector<Cut> ret;
+			
+			get_cuts([&] (Cut c) { ret.push_back(c); });
+		}
+
 		/**
 		 * Pass all cuts of a position to a function
 		 * @tparam Lambda
@@ -303,7 +331,7 @@ namespace Chomp {
 		 * @return True if the callback function terminated early
 		 */
 		template <typename Lambda, CutOrder order=CutOrder::DECREASING>
-		bool get_cuts(Lambda callback) {
+		bool get_cuts(Lambda callback) const {
 			// Should be aggressively inlined... :)
 			auto invoke = wrap_cut_callback(callback);
 
@@ -328,7 +356,7 @@ namespace Chomp {
 					return invoke(0, r2 + 1);
 				} else if (width == 2) {
 					// Reflection of the above case
-					int c1 = _height, c2 = col_count(1);
+					int c1 = _height - 1, c2 = col_count(1);
 
 					if (c2 == c1 - 1) return false;
 					if (c1 == c2) return invoke(c2 - 1, 1);
@@ -397,10 +425,11 @@ namespace Chomp {
 
 		bool orientation_calculated() { return is_orientation_calculated(_orientation); }
 		bool square_count_calculated() { return _square_count != -1; }
+		bool canonical_hash_calculated() { return _canonical_hash != -1; }
 
 		template <typename Lambda>
 		static bool positions_with_tiles (int min, int max, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
-			using callback_result = std::invoke_result_t<Lambda, Position&>;
+			using callback_result = std::invoke_result_t<Lambda, BasePosition&>;
 			constexpr bool callback_returns_bool = std::is_same_v<callback_result, bool>;
 
 			for (int i = min; i <= max; ++i) {
@@ -415,18 +444,18 @@ namespace Chomp {
 			return false;
 		}
 
-		// Get all positions with n tiles, with a given max width and height (-1 if unspecified). Positions are sent to a
-		// callback function, which must accept Position& p. Throws if it should logically return results outside the
+		// Get all positions with n tiles, with a given max width and height (-1 if unspecified). BasePositions are sent to a
+		// callback function, which must accept BasePosition& p. Throws if it should logically return results outside the
 		// range of MAX_HEIGHT. Results false if the function was called w/ all positions, and true otherwise. The callback
 		// function may return a boolean value; if true, the function will be terminated early. If only_canonical is set to
 		// true, only canonical (including symmetrical) positions are calculated and returned, which is roughly half the
 		// number of total positions
 		template <typename Lambda>
 		static bool positions_with_n_tiles (int n, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
-			static_assert(std::is_invocable_v<Lambda, Position&>,
-			        "Callback function must be invocable with a single parameter Position&.");
+			static_assert(std::is_invocable_v<Lambda, BasePosition&>,
+			        "Callback function must be invocable with a single parameter BasePosition&.");
 
-			using callback_result = std::invoke_result_t<Lambda, Position&>;
+			using callback_result = std::invoke_result_t<Lambda, BasePosition&>;
 			constexpr bool callback_returns_void = std::is_void_v<callback_result>;
 			constexpr bool callback_returns_bool = std::is_same_v<callback_result, bool>;
 
@@ -438,7 +467,7 @@ namespace Chomp {
 				throw std::runtime_error(
 								FILE_LINE + "bound_width and bound_height must be positive integers or -1, not " + DEBUG(bound_width, bound_height));
 			if (n == 0 || bound_width == 0 || bound_height == 0) {
-				Position p = empty_position();
+				BasePosition p = empty_position();
 				callback(p); // expects an l value
 
 				return false;
@@ -477,7 +506,7 @@ namespace Chomp {
 			// tiles to place is (bound_height - r) * v and the minimum number is 0. If we have a certain number of remaining
 			// tiles to place, these bounds give us information on how many we should try.
 
-			Position p = empty_position(); // position to manipulate in place and be passed to the lambda
+			BasePosition p = empty_position(); // position to manipulate in place and be passed to the lambda
 
 			// we require the rows array to be all 0s (the constructor doesn't initialize it)
 			rows_type& rows = p._rows;
@@ -560,16 +589,25 @@ namespace Chomp {
 		}
 
 		std::string to_string(PositionFormatOptions opts=default_format_options) {
-			return _position_to_string(_rows.begin(), _height, opts);
+			return _position_to_string(std::begin(_rows), _height, opts);
 		}
-	private:
+	protected:
+		Atlas<MAX_HEIGHT>* _atlas;
 		rows_type _rows;
 		int _height;
 
 		// We cache the orientation, square count, and hash
 		Orientation _orientation;
 		int _square_count;
-		hash_type _hash;
+		hash_type _canonical_hash;
+		
+		hash_type _compute_hash () {
+			return hash_position(std::begin(_rows), _height);
+		}
+
+		hash_type _compute_canonical_hash () {
+			return is_canonical() ? hash_position(std::begin(_rows), _height) : hash_position_flipped(std::begin(_rows), _height);
+		}
 
 		Orientation _compute_orientation() {
 			// Easy and common criteria
@@ -603,9 +641,9 @@ namespace Chomp {
 			return sum;
 		}
 
-		// Internal functions used when manipulating Positions in place
-		void _invalidate_cached () { _orientation = O::UNKNOWN; _square_count = -1; _hash = -1; }
-		void _make_internally_empty() { std::fill(_rows.begin(), _rows.end(), 0); }
+		// Internal functions used when manipulating BasePositions in place
+		void _invalidate_cached () { _orientation = O::UNKNOWN; _square_count = -1; _canonical_hash = unevaluated_hash; }
+		void _make_internally_empty() { std::fill(std::begin(_rows), _rows.end(), 0); }
 	};
 
 	using p_count_type = uint64_t;
@@ -616,7 +654,7 @@ namespace Chomp {
 
 	// Convenience operator
 	template <int MAX_HEIGHT>
-	std::ostream &operator<<(std::ostream &os, const Position<MAX_HEIGHT> &p) {
+	std::ostream &operator<<(std::ostream &os, const BasePosition<MAX_HEIGHT> &p) {
 		return os << p.to_string();
 	}
 }

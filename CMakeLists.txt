@@ -9,8 +9,9 @@ set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall -Wextra -std=c++20")
 add_executable(chomp
         main.cpp
         utils.hpp
-        position.cpp
-        position.hpp
+        base_position.cpp
+        base_position.hpp
+        position_atlas.hpp
         parallel_hashmap/meminfo.h
         parallel_hashmap/phmap.h
         parallel_hashmap/phmap_bits.h
