@@ -1,12 +1,19 @@
 #include "position.hpp"
 
+#include <iomanip>
 #include <vector>
+#include <sstream>
+#include <unordered_map>
 
 #define FILE_LINE CHOMP_FILE_LINE
 #define DEBUG CHOMP_DEBUG_VARS
 #define DEBUG_NB CHOMP_DEBUG_VARS_NO_BRACES
 
 namespace Chomp {
+	/**
+	 * COMBINATORICS
+	 */
+
 	// Precomputed for convenience
 	static std::array<p_count_type, 417> partitions = {
 		1ULL, 1ULL, 2ULL, 3ULL, 5ULL, 7ULL, 11ULL, 15ULL, 22ULL, 30ULL, 42ULL, 56ULL, 77ULL, 101ULL, 135ULL, 176ULL, 231ULL,
@@ -80,6 +87,14 @@ namespace Chomp {
 		16823822787139235544ULL, 17873792969689876004ULL // next is 18987964267331664557, beyond 2^64
 	};
 
+  // Let p(n) be the partition function. Let p(N, M; n) be the number of positions with n tiles in an MxN rectangle.
+	// Clearly p(n) >= p(N, M; n) and if N,M <= n, p(n) = p(N, M; n). p(N,M;n) = p(N,M-1;n)+p(N-1,M,n-M), and
+	// p(N,M;n)=p(M,N;n). The total number of positions in an MxN rectangle is (M + N choose N); to see this, note that
+	// the boundary of a given position travels up and to the left in a series of stages, say M movements up and N
+	// movements left, which can be rearranged in (M + N choose N) distinct ways -- each of which corresponds with a
+	// unique position (including the empty position)
+
+	// self explanatory
 	p_count_type partition_function(int n) {
 		return partitions.at(n);
 	}
@@ -99,15 +114,9 @@ namespace Chomp {
 		return result;
 	}
 
-	// Occasionally convenient to disregard the zero partition
-	p_count_type partition_function_sum_excl_zero(int min, int max) {
-		if (min == 0) min = 1;
-		return partition_function_sum(min, max);
-	}
-
-	// Overflow not handled
+	// Overflow not handled, but is unlikely for small arguments
 	p_count_type choose_function(int n, int r) {
-		// nCr(n, r) = n/1 * (n-1)/2 * (n-2)/3
+		// nCr(n, r) = n/1 * (n-1)/2 * (n-2)/3 * ...
 
 		if (r == 0) return 1;
 		if (r > n / 2) return choose_function(n, n-r);
@@ -121,21 +130,21 @@ namespace Chomp {
 		return result;
 	}
 
-	p_count_type unevaluated_value = -1; // will underflow
+	p_count_type unevaluated_value = -1; // dummy value; will underflow to 2^64 - 1
 
 	// Cache values of rectangle_partition_count for (n, width, height) where width <= height (since order does not matter)
 	// We store the lesser dimension first, then the greater dimension, then the number n. Each is a vector. A value of
 	// unevaluated_value signifies the value has not yet been computed.
-
 	std::vector<std::vector<std::vector<p_count_type>>> cached_partition_counts = {};
 
+	// Get the number of partitions of n that fit in the given rectangle, caching/memoizing the results
 	p_count_type rectangle_partition_count(int n, int width, int height) {
 		if (width < 0 || height < 0) return 0;
 		if (n == 0) return 1;
 		if (n < 0) return 0;
 
 		if (width > height) std::swap(width, height); // ;)
-		// Various highly optimized base cases
+		// Various base cases
 		if (width == 0) return 0; // since n != 0
 		if (width == 1) return n <= height; // 1 if true
 		if (width == 2) {
@@ -172,7 +181,7 @@ namespace Chomp {
 			std::fill(end, values.end(), unevaluated_value);
 		}
 
-		// p(n, w, h) = p(n, w-1, h) + p(n-w, w, h-1) so we want to reduce this as quickly as possible to cases where
+		// p(n, w, h) = p(n, w-1, h) + p(n-w, w, h-1) so we want to reduce this quickly to cases where
 		// n <= width and n <= height.
 		if (values[n] == unevaluated_value)
 			values[n] = rectangle_partition_count(n, width, height-1) + rectangle_partition_count(n-height, width-1, height);
@@ -196,23 +205,28 @@ namespace Chomp {
 
 		// In the case of a board where min_squares fits as a partition and max_squares fits as an "inverse partition", we
 		// can use the fact that an mxn board has (m + n choose m) possibilities and then subtract the corresponding
-		// partitions
+		// partitions. Illustration:
+		//    #####XX
+		//    ######X
+		//    #######
+		// 18 squares, 7x3 grid; Xs form an "inverse partition".
 
 		int area = bound_width * bound_height;
 		if (min_squares <= bound_width && min_squares <= bound_height && max_squares >= (area - std::min(bound_width, bound_height))) {
-			return choose_function(bound_width + bound_height, bound_height)
-			 - partition_function_sum(0, min_squares - 1)
-			 - partition_function_sum(0, area - max_squares - 1);
+			return choose_function(bound_width + bound_height, bound_height) // all positions
+			 - partition_function_sum(0, min_squares - 1) // exclude bottom-left partitions
+			 - partition_function_sum(0, area - max_squares - 1); // exclude top-right "inverse partitions"
 		}
 
 		if (min_squares == max_squares) return rectangle_partition_count(min_squares, bound_width, bound_height);
 
-		// Alas, we have run out of tricks. We break down the problem recursively
+		// Break down the problem recursively
 		int middle = (min_squares + max_squares) / 2;
 		return count_positions_inner(min_squares, middle /* since floor division */, bound_width, bound_height)
 			+ count_positions_inner(middle + 1, max_squares, bound_width, bound_height);
 	}
 
+	// Function is pretty fast
 	p_count_type count_positions(int min_squares, int max_squares, int bound_width, int bound_height) {
 		if (max_squares == -1 && (bound_width == -1 || bound_height == -1))
 			throw std::runtime_error(FILE_LINE + "Cannot have unbounded square count and dimensions; " + DEBUG(max_squares, bound_width, bound_height));
@@ -226,6 +240,149 @@ namespace Chomp {
 		if (max_squares == 0) return 1;
 
 		return count_positions_inner(min_squares, max_squares, bound_width, bound_height);
+	}
+
+	/**
+	 * FORMATTING AND RELATED CODE
+	 */
+
+	std::unordered_map<std::string, PositionFormatOptions> styles {
+		{"default", {}},
+		{"austere", { .tile_size=1, .sep=0, .show_labels=false }}
+	};
+
+	void PositionFormatOptions::set_default(PositionFormatOptions opts) {
+		default_format_options = opts;
+	}
+
+	void PositionFormatOptions::set_default(std::string style) {
+		if (!styles.contains(style)) throw std::runtime_error(FILE_LINE + "Unrecognized format style " + style);
+
+		default_format_options = styles[style];
+	}
+
+	int PositionFormatOptions::get_vertical_sep() {
+		return (sep < 0) ? vertical_sep : sep;
+	}
+
+	int PositionFormatOptions::get_horizontal_sep() {
+		return (sep < 0) ? horizontal_sep : sep;
+	}
+
+	int PositionFormatOptions::get_tile_width() {
+		return (tile_size < 0) ? tile_width : tile_size;
+	}
+
+	int PositionFormatOptions::get_tile_height() {
+		return (tile_size < 0) ? tile_height : tile_size;
+	}
+
+	// TODO: make more robust
+	std::string _position_to_string (int* rows, int height, PositionFormatOptions opts) {
+		using namespace std;
+		int width = rows[0];
+		if (height < 0 || height >= 1000 || width < 0) return "<invalid position>";
+
+		// The basic unit of printing is a rectangle of size tile_width x tile_height, which we store as a sequence of chars
+		// unbroken by newlines
+
+		int tile_width = opts.get_tile_width();
+		int tile_height = opts.get_tile_height();
+		int tile_area = tile_width * tile_height;
+
+		int horizontal_sep = opts.get_horizontal_sep();
+		int vertical_sep = opts.get_vertical_sep();
+
+		string empty_tile = string(tile_area, opts.empty_char);
+		string filled_tile = string(tile_area, opts.tile_char);
+
+		int print_width = max(opts.min_width, width);
+		int print_height = max(opts.min_height, height);
+
+		// List of rows, top to bottom
+		vector<vector<string>> out;
+
+		// Get an appropriate string for a left marker on a given row
+		auto row_marker = [&] (int r) {
+			string marker = string(tile_area, ' ');
+			string as_str = std::to_string(r);
+
+			// Center it vertically and right-align it
+			marker.insert((tile_area + 1) / 2 + tile_width - as_str.length() - 1, as_str);
+			return marker;
+		};
+
+		// Get an appropriate string for a top marker on a given column
+		auto col_marker = [&] (int c) {
+			string marker = string(tile_area, ' ');
+			string as_str = std::to_string(c);
+
+			// Center it vertically and put it on the bottom
+			marker.insert(tile_area - tile_width / 2 - (as_str.length() + 1) / 2, as_str);
+			return marker;
+		};
+
+		for (int i = 0; i < print_height; ++i) {
+			vector<string> out_row;
+
+			int cnt = 0;
+
+			if (i < height) {
+				cnt = rows[i];
+
+				for (int j = 0; j < cnt; ++j) {
+					out_row.push_back(filled_tile);
+				}
+			}
+
+			for (int j = cnt; j < print_width; ++j) {
+				out_row.push_back(empty_tile);
+			}
+
+			out.insert(out.begin(), out_row);
+		}
+
+		// Add row/col markers if desired
+		if (opts.show_labels) {
+			for (int row = 0; row < print_height; ++row) {
+				out[row].insert(out[row].begin(), row_marker(print_height - row - 1)); // invert the labels
+			}
+
+			vector<string> first_row; // new first row
+			first_row.push_back(string(tile_area, ' ')); // spacer
+
+			for (int col = 0; col < print_width; ++col)
+				first_row.push_back(col_marker(col));
+
+			out.insert(out.begin(), first_row);
+		}
+
+		// Print it out
+		std::stringstream ss;
+
+		for (auto row : out) {
+			// For each row...
+			for (int h = 0; h < tile_height; ++h) {
+				// Print the hth character row
+				for (auto tile : row) {
+					string segment;
+					int start_index = h * tile_width;
+
+					if (start_index <= tile.length()) {
+						segment = tile.substr(start_index, tile_width);
+					}
+
+					ss << setw(tile_width) << segment << setw(0);
+					ss << string(horizontal_sep, ' ');
+				}
+
+				ss << '\n';
+			}
+
+			ss << string(vertical_sep, '\n');
+		}
+
+		return ss.str();
 	}
 }
 
