@@ -6,6 +6,7 @@
 
 #include <tuple>
 #include <iostream>
+#include <chrono>
 
 // For compiler portability
 #undef INT_MAX
@@ -52,6 +53,18 @@ namespace {
 	}
 }
 
+namespace Chomp {
+	// Time in milliseconds; credit to Scott Meyers
+	auto time_function = [](auto&& func, auto&&... params) -> std::string {
+		const auto& start = std::chrono::high_resolution_clock::now();
+
+		std::forward<decltype(func)>(func)(std::forward<decltype(params)>(params)...);
+
+		const auto& stop = std::chrono::high_resolution_clock::now();
+		return std::to_string(std::chrono::duration<double, std::milli>(stop - start).count()) + "ms";
+	};
+}
+
 // let's fucking go
 #define CHOMP_SHOW_VAR1(a) CHOMP_STR_HELPER(a)
 #define CHOMP_SHOW_VAR2(a, ...) CHOMP_STR_HELPER(a) ", " CHOMP_SHOW_VAR1(__VA_ARGS__)
@@ -77,3 +90,4 @@ namespace {
 // Diagnostics as string (for example, DEBUG_VARS(MAX_HEIGHT, n) might give "(MAX_HEIGHT, n) = (100, 5)"
 #define CHOMP_DEBUG_VARS(...) std::string("(" CHOMP_SHOW_VARS(__VA_ARGS__) ") = (") + debugger_to_string(std::make_tuple(__VA_ARGS__)) + ')'
 #define CHOMP_DEBUG_VARS_NO_BRACES(...) std::string(CHOMP_SHOW_VARS(__VA_ARGS__)) + " = " + debugger_to_string(std::make_tuple(__VA_ARGS__))
+

@@ -186,6 +186,23 @@ namespace Chomp {
 		bool orientation_calculated() { return is_orientation_calculated(_orientation); }
 		bool square_count_calculated() { return _square_count != -1; }
 
+		template <typename Lambda>
+		static bool positions_with_tiles (int min, int max, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
+			using callback_result = std::invoke_result_t<Lambda, Position&>;
+			constexpr bool callback_returns_bool = std::is_same_v<callback_result, bool>;
+
+			for (int i = min; i <= max; ++i) {
+				if constexpr (callback_returns_bool) {
+					if (positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical))
+						return true;
+				} else {
+					positions_with_n_tiles(i, callback, bound_width, bound_height, only_canonical);
+				}
+			}
+
+			return false;
+		}
+
 		// Get all positions with n tiles, with a given max width and height (-1 if unspecified). Positions are sent to a
 		// callback function, which must accept Position& p. Throws if it should logically return results outside the
 		// range of MAX_HEIGHT. Results false if the function was called w/ all positions, and true otherwise. The callback
@@ -194,7 +211,6 @@ namespace Chomp {
 		// number of total positions
 		template <typename Lambda>
 		static bool positions_with_n_tiles (int n, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
-
 			static_assert(std::is_invocable_v<Lambda, Position&>,
 			        "Callback function must be invocable with a single parameter Position&.");
 
@@ -228,20 +244,20 @@ namespace Chomp {
 				// height n/2 - 1. For example:
 				//  #          #
 				//  #          #
-				//  ###        #####
+				//  ###        ####
 				// n = 5       n = 6
 
 				logical_bound_height = (n % 2 == 0) ? (n / 2 - 1) : ((n - 1) / 2);
 			}
 
-			if (logical_bound_height > MAX_HEIGHT)
-				throw std::runtime_error(
-								FILE_LINE + "Call to positions_with_n_tiles will generate positions taller than "
-								+ DEBUG(MAX_HEIGHT) + "; " + DEBUG(n, bound_width, bound_height, only_canonical));
-
 			// Actual bound width and bound height to be used
 			bound_width = std::min(logical_bound_width, bound_width);
 			bound_height = std::min(logical_bound_height, bound_height);
+
+			if (bound_height > MAX_HEIGHT)
+				throw std::runtime_error(
+								FILE_LINE + "Call to positions_with_n_tiles will generate positions taller than "
+								+ DEBUG_NB(MAX_HEIGHT) + "; " + DEBUG(n, bound_width, bound_height, only_canonical));
 
 			// We start off with some position and modify it iteratively. We want the rows to sum to n, the number of rows to be
 			// less than or equal to the bound_height, and each row to be less than the bound_width. If we are determining the
@@ -250,29 +266,46 @@ namespace Chomp {
 			// tiles to place, these bounds give us information on how many we should try.
 
 			Position p = empty_position(); // position to manipulate in place and be passed to the lambda
-			p._make_internally_empty();    // we require the rows array to be all 0s (the constructor doesn't initialize it)
 
-			rows_type rows = p._rows;
+			// we require the rows array to be all 0s (the constructor doesn't initialize it)
+			rows_type& rows = p._rows;
+			rows.fill(0);
+
+			// Thinnest canonical position is an L, so n /2
+			if (only_canonical) rows[0] = n / 2;
 
 			// Index we are currently modifying
 			int i = 0;
 			// Tiles remaining to be placed
 			int remaining = n;
 
+			// Cache min_place and max_place
+			rows_type min_place_arr;
+			rows_type max_place_arr;
+
+			// Whether min_place and max_place need to be recalculated
+			bool needs_recalc = true;
+
 			while (true) {
 				int rows_remaining = bound_height - i;
 
-				int current = rows[i]; // starts at 0
+				int current = rows[i];
 				remaining += current;
 
-				// ceiling division of remaining and rows_remaining; we need to place at least this many squares
-				int min_place = (remaining + rows_remaining - 1) / rows_remaining;
-
-				// Upper bound on how many to place
-				int max_place = std::min((i == 0) ? remaining : rows[i - 1], bound_width);
+				int min_place, max_place;
+				if (needs_recalc) {
+					// ceiling division of remaining and rows_remaining; we need to place at least this many squares
+					min_place = min_place_arr[i] = (remaining + rows_remaining - 1) / rows_remaining;
+					// Upper bound on how many squares to place
+					max_place = max_place_arr[i] = std::min((i == 0) ? remaining : rows[i - 1], bound_width);
+					needs_recalc = false;
+				} else {
+					min_place = min_place_arr[i];
+					max_place = max_place_arr[i];
+				}
 
 				if (current >= max_place || max_place < min_place) {
-					// backtrack, though this shouldn't happen very often
+					// backtrack
 					rows[i--] = 0;
 
 					if (i == -1) break;
@@ -307,8 +340,11 @@ namespace Chomp {
 				} else {
 					// Some tiles remain to be placed; continue if possible
 					i = std::min(i + 1, bound_height - 1);
+					needs_recalc = true;
 				}
 			}
+
+			return false;
 		}
 
 	public:

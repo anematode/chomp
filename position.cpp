@@ -1,5 +1,7 @@
 #include "position.hpp"
 
+#include <vector>
+
 #define FILE_LINE CHOMP_FILE_LINE
 #define DEBUG CHOMP_DEBUG_VARS
 #define DEBUG_NB CHOMP_DEBUG_VARS_NO_BRACES
@@ -82,6 +84,7 @@ namespace Chomp {
 		return partitions.at(n);
 	}
 
+	// Sum p(n) from min to max, INCLUSIVE
 	p_count_type partition_function_sum(int min, int max) {
 		p_count_type result = 0;
 
@@ -96,6 +99,13 @@ namespace Chomp {
 		return result;
 	}
 
+	// Occasionally convenient to disregard the zero partition
+	p_count_type partition_function_sum_excl_zero(int min, int max) {
+		if (min == 0) min = 1;
+		return partition_function_sum(min, max);
+	}
+
+	// Overflow not handled
 	p_count_type choose_function(int n, int r) {
 		// nCr(n, r) = n/1 * (n-1)/2 * (n-2)/3
 
@@ -103,9 +113,71 @@ namespace Chomp {
 		if (r > n / 2) return choose_function(n, n-r);
 
 		p_count_type result = 1;
-		for (int k = 0; k <= r; ++k) {
-			
+		for (int k = 1; k <= r; ++k) {
+			result *= n - k + 1;
+			result /= k;
 		}
+
+		return result;
+	}
+
+	p_count_type unevaluated_value = -1; // will underflow
+
+	// Cache values of rectangle_partition_count for (n, width, height) where width <= height (since order does not matter)
+	// We store the lesser dimension first, then the greater dimension, then the number n. Each is a vector. A value of
+	// unevaluated_value signifies the value has not yet been computed.
+
+	std::vector<std::vector<std::vector<p_count_type>>> cached_partition_counts = {};
+
+	p_count_type rectangle_partition_count(int n, int width, int height) {
+		if (width < 0 || height < 0) return 0;
+		if (n == 0) return 1;
+		if (n < 0) return 0;
+
+		if (width > height) std::swap(width, height); // ;)
+		// Various highly optimized base cases
+		if (width == 0) return 0; // since n != 0
+		if (width == 1) return n <= height; // 1 if true
+		if (width == 2) {
+			int area = height * 2;
+			if (n > area) return 0;
+			if (n <= height) return (n + 2) / 2;
+			return ((area - n) + 2) / 2;
+		}
+
+		if (n <= width) return partition_function(n);
+
+		int area = width * height;
+		if (n == area) return 1;
+		if (n > area) return 0;
+
+		if (cached_partition_counts.size() <= width) {
+			cached_partition_counts.resize(width + 1);
+			cached_partition_counts[width] = std::vector<std::vector<p_count_type>>{};
+		}
+
+		auto& heights = cached_partition_counts[width];
+		if (heights.size() <= height) {
+			heights.resize(height + 1);
+			heights[height] = std::vector<p_count_type>{};
+		}
+
+		auto& values = heights[height];
+		if (values.size() <= n) {
+			size_t size = values.size();
+			values.resize(n + 1);
+
+			auto end = values.begin() + size;
+
+			std::fill(end, values.end(), unevaluated_value);
+		}
+
+		// p(n, w, h) = p(n, w-1, h) + p(n-w, w, h-1) so we want to reduce this as quickly as possible to cases where
+		// n <= width and n <= height.
+		if (values[n] == unevaluated_value)
+			values[n] = rectangle_partition_count(n, width, height-1) + rectangle_partition_count(n-height, width-1, height);
+
+		return values[n];
 	}
 
 	p_count_type count_positions_inner(int min_squares, int max_squares, int bound_width, int bound_height) {
@@ -120,9 +192,25 @@ namespace Chomp {
 			return std::max(std::min(max_squares, bound_width) - min_squares + 1, 0);
 		} else if (max_squares <= bound_width && max_squares <= bound_height) {
 			return partition_function_sum(min_squares, max_squares);
-		} else if (min_squares < bound_width && min_squares < bound_height && max_squares >= bound_width * bound_height) {
-
 		}
+
+		// In the case of a board where min_squares fits as a partition and max_squares fits as an "inverse partition", we
+		// can use the fact that an mxn board has (m + n choose m) possibilities and then subtract the corresponding
+		// partitions
+
+		int area = bound_width * bound_height;
+		if (min_squares <= bound_width && min_squares <= bound_height && max_squares >= (area - std::min(bound_width, bound_height))) {
+			return choose_function(bound_width + bound_height, bound_height)
+			 - partition_function_sum(0, min_squares - 1)
+			 - partition_function_sum(0, area - max_squares - 1);
+		}
+
+		if (min_squares == max_squares) return rectangle_partition_count(min_squares, bound_width, bound_height);
+
+		// Alas, we have run out of tricks. We break down the problem recursively
+		int middle = (min_squares + max_squares) / 2;
+		return count_positions_inner(min_squares, middle /* since floor division */, bound_width, bound_height)
+			+ count_positions_inner(middle + 1, max_squares, bound_width, bound_height);
 	}
 
 	p_count_type count_positions(int min_squares, int max_squares, int bound_width, int bound_height) {
