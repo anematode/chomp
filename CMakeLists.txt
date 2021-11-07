@@ -11,7 +11,8 @@ add_executable(chomp
         utils.hpp
         base_position.cpp
         base_position.hpp
-        position_atlas.hpp
+        base_atlas.hpp
+        atlas.hpp
         parallel_hashmap/meminfo.h
         parallel_hashmap/phmap.h
         parallel_hashmap/phmap_bits.h

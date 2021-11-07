@@ -42,6 +42,9 @@ namespace Chomp {
 	};
 
 	using Cut = std::pair<int, int>;
+	using p_count_type = uint64_t;
+	using hash_type = uint64_t;
+	static hash_type unevaluated_hash = -1;
 
 	namespace {
 		using O = Orientation;
@@ -133,12 +136,13 @@ namespace Chomp {
 
 	inline PositionFormatOptions default_format_options;
 	std::string _position_to_string (int* rows, int height, PositionFormatOptions opts);
-	
-	using hash_type = uint64_t;
-	hash_type unevaluated_hash = -1;
 
 	hash_type hash_position(const int* rows, int height);
-	hash_type hash_flipped_position(const int* rows, int height); // used to get the canonical hash
+	hash_type hash_position_flipped(const int* rows, int height); // used to get the canonical hash
+
+	p_count_type partition_function(int n);
+	// A value of -1 in any of the last three positions indicates it should be unbounded
+	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 
 	template<int MAX_HEIGHT>
 	class Atlas; // forward declaration
@@ -452,8 +456,11 @@ namespace Chomp {
 		// number of total positions
 		template <typename Lambda>
 		static bool positions_with_n_tiles (int n, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
-			static_assert(std::is_invocable_v<Lambda, BasePosition&>,
-			        "Callback function must be invocable with a single parameter BasePosition&.");
+			constexpr bool callback_takes_position = std::is_invocable_v<Lambda, BasePosition&>;
+			constexpr bool callback_takes_progress = std::is_invocable_v<Lambda, BasePosition&, double>;
+
+			static_assert(callback_takes_position || callback_takes_progress,
+			        "Callback function must be invocable with a single parameter BasePosition& or a BasePosition& and a double representing progress.");
 
 			using callback_result = std::invoke_result_t<Lambda, BasePosition&>;
 			constexpr bool callback_returns_void = std::is_void_v<callback_result>;
@@ -461,6 +468,24 @@ namespace Chomp {
 
 			static_assert(callback_returns_void || callback_returns_bool,
 			        "Callback function must either be void or return a boolean");
+
+			auto invoke = [&] (BasePosition &p, double progress) -> bool {
+				if constexpr (callback_returns_bool) {
+					if constexpr (callback_takes_progress) {
+						if (callback(p, progress)) return true;
+					} else {
+						if (callback(p)) return true;
+					}
+				} else {
+					if constexpr (callback_takes_progress) {
+						callback(p, progress);
+					} else {
+						callback(p);
+					}
+				}
+			};
+
+			double total = callback_takes_progress ? (double)count_positions(n, n, bound_width, bound_height) : 1;
 
 			if (n < 0) throw std::runtime_error(FILE_LINE + "n must be a positive integer, not " + DEBUG_NB(n));
 			if (bound_width < -1 || bound_height < -1)
@@ -515,6 +540,9 @@ namespace Chomp {
 			// Thinnest canonical position is an L, so n /2
 			if (only_canonical) rows[0] = n / 2;
 
+			// Which position we are on
+			int id = 0;
+
 			// Index we are currently modifying
 			int i = 0;
 			// Tiles remaining to be placed
@@ -528,6 +556,7 @@ namespace Chomp {
 			bool needs_recalc = true;
 
 			while (true) {
+				++id;
 				int rows_remaining = bound_height - i;
 
 				int current = rows[i];
@@ -565,11 +594,7 @@ namespace Chomp {
 					p._height = (current == 0) ? i : (i + 1);
 
 					if (!only_canonical || p.is_canonical()) {
-						if constexpr (callback_returns_bool) {
-							if (callback(p)) return true;
-						} else {
-							callback(p);
-						}
+						if (invoke(p, id / total)) return true;
 					}
 
 					p._invalidate_cached();
@@ -645,12 +670,6 @@ namespace Chomp {
 		void _invalidate_cached () { _orientation = O::UNKNOWN; _square_count = -1; _canonical_hash = unevaluated_hash; }
 		void _make_internally_empty() { std::fill(std::begin(_rows), _rows.end(), 0); }
 	};
-
-	using p_count_type = uint64_t;
-
-	p_count_type partition_function(int n);
-	// A value of -1 in any of the last three positions indicates it should be unbounded
-	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 
 	// Convenience operator
 	template <int MAX_HEIGHT>

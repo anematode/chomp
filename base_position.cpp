@@ -15,7 +15,7 @@ namespace Chomp {
 	 */
 	const uint64_t HASH_PRIME = 179424673;
 
-	hash_type hash_position(int* rows, int height) {
+	hash_type hash_position(const int* rows, int height) {
 		hash_type hash = 0;
 
 		for (int i = 0; i < height; ++i) {
@@ -27,7 +27,7 @@ namespace Chomp {
 	}
 
 	// Return the hash of the flipped position
-	hash_type hash_flipped_position(int* rows, int height) {
+	hash_type hash_position_flipped(const int* rows, int height) {
 		int col = 0;
 		hash_type hash = 0;
 
