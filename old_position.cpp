@@ -191,11 +191,11 @@ namespace Chomp {
 			Position p = *it;
 
 			bool is_winning = false;
-			int multiplicity = (p.o == Orientation::CANONICAL) ? 2 : 1;
+			int multiplicity = p.multiplicity();
 
 			num_positions += multiplicity;
 
-			p.for_each_cut([&] (Cut c) {
+			p.get_cuts([&] (Cut c) {
 				Position cutted = p.cut(c);
 				
 				if (opts.compute_dte) cutted_list.push_back(cutted);

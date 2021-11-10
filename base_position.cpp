@@ -312,10 +312,11 @@ namespace Chomp {
 	}
 
 	// TODO: make more robust
-	std::string _position_to_string (int* rows, int height, PositionFormatOptions opts) {
+	std::string _position_to_string (const int* rows, int height, PositionFormatOptions opts) {
 		using namespace std;
 		int width = rows[0];
 		if (height < 0 || height >= 1000 || width < 0) return "<invalid position>";
+		if (height == 0) return "<empty>";
 
 		// The basic unit of printing is a rectangle of size tile_width x tile_height, which we store as a sequence of chars
 		// unbroken by newlines

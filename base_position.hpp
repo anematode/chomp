@@ -4,6 +4,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <stdexcept>
 #include <sstream>
@@ -49,17 +50,17 @@ namespace Chomp {
 	namespace {
 		using O = Orientation;
 
-		bool is_orientation_calculated(O o) noexcept {
+		inline bool is_orientation_calculated(O o) noexcept {
 			return o != O::UNKNOWN;
 		}
 
 		// Silently fails when passed UNKNOWN
-		bool is_orientation_canonical(O o) noexcept {
+		inline bool is_orientation_canonical(O o) noexcept {
 			return !(static_cast<int>(o) & 1);
 		}
 
 		// 2 when asymmetric, 1 when symmetric. Silently fails when passed UNKNOWN
-		int orientation_multiplicity(Orientation o) noexcept {
+		inline int orientation_multiplicity(Orientation o) noexcept {
 			return 2 - (o == O::SYMMETRIC);
 		}
 
@@ -67,13 +68,15 @@ namespace Chomp {
 		const auto& str = static_cast<std::string(*)(int)>(std::to_string);
 
 		template <typename Lambda>
-		inline auto wrap_cut_callback(Lambda callback) {
+		inline auto wrap_cut_callback(const Lambda& callback) {
 			constexpr bool uses_int_arguments = std::is_invocable_v<Lambda, int, int>;
 			constexpr bool uses_cut_argument = std::is_invocable_v<Lambda, Cut>;
 			static_assert(uses_int_arguments || uses_cut_argument,
 			              "Callback function must be invocable with two arguments (int row, int col) or a single argument Cut.");
 
-			using callback_result = std::conditional<uses_int_arguments, std::invoke_result_t<Lambda, int, int>, std::invoke_result_t<Lambda, Cut>>;
+			using callback_result =
+							typename std::conditional_t<uses_int_arguments, std::invoke_result<Lambda, int, int>,
+							        std::invoke_result<Lambda, Chomp::Cut>>::type;
 			constexpr bool callback_returns_void = std::is_void_v<callback_result>;
 			constexpr bool callback_returns_bool = std::is_same_v<callback_result, bool>;
 
@@ -83,13 +86,15 @@ namespace Chomp {
 			return [&] (int row, int col) -> bool {
 				if constexpr (uses_int_arguments) {
 					if constexpr (callback_returns_bool) {
-						if (callback(row, col)) return true;
+						if (callback(row, col))
+							return true;
 					} else {
 						callback(row, col);
 					}
 				} else {
 					if constexpr (callback_returns_bool) {
-						if (callback({ row, col })) return true;
+						if (callback({ row, col }))
+							return true;
 					} else {
 						callback({ row, col });
 					}
@@ -106,7 +111,7 @@ namespace Chomp {
 		int tile_width = 3;
 		int tile_height = 2;
 		// If positive, used for tile_width/tile_height
-		int tile_size = -1;
+		int tile_size = -1; //
 
 		// Minimum number of tiles to display in each direction
 		int min_width = 3;
@@ -135,7 +140,7 @@ namespace Chomp {
 	};
 
 	inline PositionFormatOptions default_format_options;
-	std::string _position_to_string (int* rows, int height, PositionFormatOptions opts);
+	std::string _position_to_string (const int* rows, int height, PositionFormatOptions opts);
 
 	hash_type hash_position(const int* rows, int height);
 	hash_type hash_position_flipped(const int* rows, int height); // used to get the canonical hash
@@ -148,7 +153,8 @@ namespace Chomp {
 	class Atlas; // forward declaration
 
 	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
-	// variable. The empty position has a height of 0.
+	// variable. The empty position has a height of 0. We must always have rows[0] be a valid number, since it is used for
+	// the width; the empty position causes some annoyances here.
 	template<int MAX_HEIGHT>
 	class BasePosition {
 		static_assert(1 <= MAX_HEIGHT && MAX_HEIGHT <= 1000,
@@ -160,9 +166,9 @@ namespace Chomp {
 		BasePosition() = default;
 		~BasePosition() = default;
 
-		// We only need to copy the first "height" rows
+		// We only need to copy the first "height" rows, but at least 1, if it's the empty position
 		BasePosition(const BasePosition& p) : _height(p._height), _orientation(p._orientation),
-			_square_count(p._square_count), _canonical_hash(p._canonical_hash), _atlas(p._atlas) {
+			_square_count(p._square_count), _atlas(p._atlas), _canonical_hash(p._canonical_hash) {
 			
 			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 		}
@@ -224,6 +230,7 @@ namespace Chomp {
 		bool is_canonical() { return is_orientation_canonical(orientation()); }
 		bool is_symmetric() { return orientation() == O::SYMMETRIC; }
 		bool is_empty() const noexcept { return _height == 0; }
+		int multiplicity() { return orientation_multiplicity(orientation()); }
 
 		// 0-indexed
 		bool square_at(int row, int col) const {
@@ -235,6 +242,8 @@ namespace Chomp {
 		static BasePosition empty_position() {
 			BasePosition p;
 			p._height = p._rows[0] = 0; // rows[0] is set to 0 so that width is valid
+			p._invalidate_cached();
+
 			return p;
 		}
 
@@ -250,7 +259,9 @@ namespace Chomp {
 			BasePosition p;
 			p._height = height;
 			std::fill_n(std::begin(p._rows), height, width);
-			p.orientation = (width < height) ? O::NOT_CANONICAL : ((width == height) ? O::SYMMETRIC : O::CANONICAL);
+			p._orientation = (width < height) ? O::NOT_CANONICAL : ((width == height) ? O::SYMMETRIC : O::CANONICAL);
+			p._canonical_hash = unevaluated_hash;
+			p._square_count = width * height;
 
 			return p;
 		}
@@ -278,7 +289,7 @@ namespace Chomp {
 		}
 
 		// Cut a position at a given row and column
-		BasePosition cut (int row, int col) const {
+		BasePosition cut(int row, int col) const {
 			// OOB conditions
 			if (row >= _height) return *this;
 			if (col >= width()) return *this;
@@ -292,6 +303,7 @@ namespace Chomp {
 
 			if (col == 0) {
 				p._height = row;
+				if (row == 0) p._rows[0] = 0; // set width
 			} else {
 				for (int i = row; i < _height; ++i) {
 					p._rows[i] = std::min(col, _rows[i]);
@@ -300,10 +312,13 @@ namespace Chomp {
 				p._height = _height;
 			}
 
-			p._orientation = O::UNKNOWN;
-			p._square_count = -1;
+			p._invalidate_cached();
 
 			return p;
+		}
+
+		BasePosition cut(Cut c) const {
+			return cut(c.first, c.second);
 		}
 
 		// Number of tiles in a given column
@@ -325,6 +340,8 @@ namespace Chomp {
 			std::vector<Cut> ret;
 			
 			get_cuts([&] (Cut c) { ret.push_back(c); });
+
+			return ret;
 		}
 
 		/**
@@ -334,7 +351,7 @@ namespace Chomp {
 		 * @param callback Callback function that may receive a single Cut argument or a pair of ints
 		 * @return True if the callback function terminated early
 		 */
-		template <typename Lambda, CutOrder order=CutOrder::DECREASING>
+		template <CutOrder order=CutOrder::DECREASING, typename Lambda>
 		bool get_cuts(Lambda callback) const {
 			// Should be aggressively inlined... :)
 			auto invoke = wrap_cut_callback(callback);
@@ -427,9 +444,14 @@ namespace Chomp {
 			return ss.str();
 		}
 
-		bool orientation_calculated() { return is_orientation_calculated(_orientation); }
-		bool square_count_calculated() { return _square_count != -1; }
-		bool canonical_hash_calculated() { return _canonical_hash != -1; }
+		bool orientation_calculated() const noexcept { return is_orientation_calculated(_orientation); }
+		bool square_count_calculated() const noexcept { return _square_count != -1; }
+		bool canonical_hash_calculated() const noexcept { return _canonical_hash != unevaluated_hash; }
+		bool operator==(const BasePosition &p) const noexcept {
+			if (_height != p._height) return false;
+			for (int i = 0; i < _height; ++i) if (_rows[i] != p._rows[i]) return false;
+			return true;
+		}
 
 		template <typename Lambda>
 		static bool positions_with_tiles (int min, int max, Lambda callback, int bound_width=-1, int bound_height=-1, bool only_canonical=false) {
@@ -483,6 +505,8 @@ namespace Chomp {
 						callback(p);
 					}
 				}
+
+				return false;
 			};
 
 			double total = callback_takes_progress ? (double)count_positions(n, n, bound_width, bound_height) : 1;
@@ -491,12 +515,6 @@ namespace Chomp {
 			if (bound_width < -1 || bound_height < -1)
 				throw std::runtime_error(
 								FILE_LINE + "bound_width and bound_height must be positive integers or -1, not " + DEBUG(bound_width, bound_height));
-			if (n == 0 || bound_width == 0 || bound_height == 0) {
-				BasePosition p = empty_position();
-				callback(p); // expects an l value
-
-				return false;
-			}
 
 			if (bound_width == -1) bound_width = n;
 			if (bound_height == -1) bound_height = n;
@@ -506,14 +524,14 @@ namespace Chomp {
 			// Logical bounds
 			int logical_bound_height = n, logical_bound_width = n;
 			if (only_canonical) {
-				// The tallest canonical position is an L. If n is odd, it has width and height (n-1)/2; if n is even, it has
-				// height n/2 - 1. For example:
+				// The tallest canonical position is an L. If n is odd, it has width and height (n+1)/2; if n is even, it has
+				// height n/2. For example:
 				//  #          #
 				//  #          #
 				//  ###        ####
 				// n = 5       n = 6
 
-				logical_bound_height = (n % 2 == 0) ? (n / 2 - 1) : ((n - 1) / 2);
+				logical_bound_height = (n % 2 == 0) ? (n / 2) : ((n + 1) / 2);
 			}
 
 			// Actual bound width and bound height to be used
@@ -524,6 +542,13 @@ namespace Chomp {
 				throw std::runtime_error(
 								FILE_LINE + "Call to positions_with_n_tiles will generate positions taller than "
 								+ DEBUG_NB(MAX_HEIGHT) + "; " + DEBUG(n, bound_width, bound_height, only_canonical));
+
+			if (n == 0 || bound_width == 0 || bound_height == 0) {
+				BasePosition p = empty_position();
+				callback(p); // expects an l value
+
+				return false;
+			}
 
 			// We start off with some position and modify it iteratively. We want the rows to sum to n, the number of rows to be
 			// less than or equal to the bound_height, and each row to be less than the bound_width. If we are determining the
@@ -537,8 +562,8 @@ namespace Chomp {
 			rows_type& rows = p._rows;
 			rows.fill(0);
 
-			// Thinnest canonical position is an L, so n /2
-			if (only_canonical) rows[0] = n / 2;
+			// Thinnest canonical position is a square, so floor(sqrt(n))
+			if (only_canonical) rows[0] = std::floor(std::sqrt(n)) - 1; // always >= 0
 
 			// Which position we are on
 			int id = 0;
@@ -546,7 +571,7 @@ namespace Chomp {
 			// Index we are currently modifying
 			int i = 0;
 			// Tiles remaining to be placed
-			int remaining = n;
+			int remaining = n - rows[0];
 
 			// Cache min_place and max_place
 			rows_type min_place_arr;
@@ -593,6 +618,9 @@ namespace Chomp {
 				if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
 					p._height = (current == 0) ? i : (i + 1);
 
+					/*std::cout << p.list() << '\n';
+					std::cout << p.is_canonical() << '\n';*/
+
 					if (!only_canonical || p.is_canonical()) {
 						if (invoke(p, id / total)) return true;
 					}
@@ -613,7 +641,7 @@ namespace Chomp {
 			return false;
 		}
 
-		std::string to_string(PositionFormatOptions opts=default_format_options) {
+		std::string to_string(PositionFormatOptions opts=default_format_options) const {
 			return _position_to_string(std::begin(_rows), _height, opts);
 		}
 	protected:
@@ -667,13 +695,13 @@ namespace Chomp {
 		}
 
 		// Internal functions used when manipulating BasePositions in place
-		void _invalidate_cached () { _orientation = O::UNKNOWN; _square_count = -1; _canonical_hash = unevaluated_hash; }
+		inline void _invalidate_cached () noexcept { _orientation = O::UNKNOWN; _square_count = -1; _canonical_hash = unevaluated_hash; }
 		void _make_internally_empty() { std::fill(std::begin(_rows), _rows.end(), 0); }
 	};
 
 	// Convenience operator
 	template <int MAX_HEIGHT>
-	std::ostream &operator<<(std::ostream &os, const BasePosition<MAX_HEIGHT> &p) {
+	std::ostream& operator<<(std::ostream &os, const BasePosition<MAX_HEIGHT> &p) {
 		return os << p.to_string();
 	}
 }

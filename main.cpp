@@ -3,16 +3,29 @@
 //
 
 #include "atlas.hpp"
+#include "utils.hpp"
 #include <iostream>
 #include <chrono>
 
+// Perf results:
+// Single-threaded
+
 int main () {
+	using namespace Chomp;
 	Chomp::PositionFormatOptions::set_default("austere");
 
-	Chomp::Atlas<50> atlas;
-	using Position = Chomp::Atlas<50>::Position;
+	const int dim = 65;
 
-	Position p{2, 2, 1};
+	Chomp::Atlas<dim> atlas;
+	using Position = Chomp::Atlas<dim>::Position;
 
-	std::cout << atlas.get_position_hash_location(p).first << '\n';
+	//atlas.hash_positions(0, 4);
+
+	Position p{1};
+	Position p2{3, 2};
+
+	std::cout << time_function([&] {
+		atlas.hash_positions(1, dim, dim, dim);
+	});
+
 }

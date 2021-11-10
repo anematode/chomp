@@ -39,8 +39,9 @@ namespace {
 		return std::to_string(a);
 	}
 
+
 	template<>
-	std::string to_string<bool>(bool b) {
+	[[maybe_unused]] std::string to_string<bool>(bool b) {
 		return b ? "true" : "false";
 	}
 
