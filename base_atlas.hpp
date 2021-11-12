@@ -38,8 +38,8 @@ namespace Chomp {
 				p.square_count() <= _max_square_count && p.square_count() >= _min_square_count);
 		}
 
-		virtual PositionInfo get_position_info(Position &p) = 0;
-		virtual PositionInfo get_position_info(Position &&p) { return get_position_info(p); }
+		virtual PositionInfo get_position_info(Position &p) const = 0;
+		virtual PositionInfo get_position_info(Position &&p) const { return get_position_info(p); }
 		virtual int known_losing_positions() { return _total_losing_positions; }
 		virtual int known_positions() { return _total_known_positions; }
 		virtual int known_winning_positions() {

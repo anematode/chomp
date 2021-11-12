@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 include_directories(.)
 
-set(CMAKE_CXX_FLAGS "-O3 -Wall -Wextra -std=c++20")
+set(CMAKE_CXX_FLAGS "-O3 -march=native -Wall -Wextra -std=c++20")
 add_executable(chomp
         main.cpp
         utils.hpp

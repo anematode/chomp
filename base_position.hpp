@@ -149,7 +149,8 @@ namespace Chomp {
 	// A value of -1 in any of the last three positions indicates it should be unbounded
 	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 
-	template<int MAX_HEIGHT>
+	enum class HashingStrategy;
+	template<int MAX_HEIGHT, HashingStrategy HASHING_STRATEGY>
 	class Atlas; // forward declaration
 
 	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
@@ -235,7 +236,7 @@ namespace Chomp {
 		// 0-indexed
 		bool square_at(int row, int col) const {
 			if (row >= _height || row < 0) return false;
-			return _rows[row] >= col;
+			return _rows[row] > col;
 		}
 
 		// Get the empty position
@@ -387,9 +388,16 @@ namespace Chomp {
 				// So width, height > 2. We can potentially eliminate (0,0), (0,1), (0,2), (1,1), (1,0), (2,0), and (x,0) or
 				// (y,0) for specific x and y
 
-				bool has_square_at_1_1 = square_at(1, 1);
-				int excl_row = (has_square_at_1_1 && (_height > width)) ? width : -1; // cuts to a losing position
-				int excl_col = (has_square_at_1_1 && (_height < width)) ? _height : -1;
+				if (!square_at(1, 1)) {
+					// Square L
+					if (_height == width) return false;
+					if (_height > width) return invoke(width, 0);
+					return invoke(0, _height);
+				}
+
+				int excl_row = (_height > width) ? width : -1; // cuts to a losing position
+				int excl_col = (_height < width) ? _height : -1;
+				if (_height == width && invoke(1, 1)) return true;
 
 				// Handle first row. We never call (0,0) or (0,1) because they are losing.
 
@@ -411,7 +419,7 @@ namespace Chomp {
 					int row = _rows[i];
 					for (int col = row - 1; col >= 1; --col) {
 						if (row == 1 && col == 1 && _height != width) continue; // don't cut to a non-square L
-						if (invoke(row, col)) return true;
+						if (invoke(i, col)) return true;
 					}
 				}
 			} else {
@@ -431,6 +439,11 @@ namespace Chomp {
 			}
 
 			return false;
+		}
+
+		template <typename Lambda>
+		bool get_potentially_winning_cuts(Lambda callback) {
+			return get_cuts<CutOrder::POTENTIALLY_WINNING>(callback);
 		}
 
 		// Return the position as a readable list of row values
@@ -618,9 +631,6 @@ namespace Chomp {
 				if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
 					p._height = (current == 0) ? i : (i + 1);
 
-					/*std::cout << p.list() << '\n';
-					std::cout << p.is_canonical() << '\n';*/
-
 					if (!only_canonical || p.is_canonical()) {
 						if (invoke(p, id / total)) return true;
 					}
@@ -645,7 +655,7 @@ namespace Chomp {
 			return _position_to_string(std::begin(_rows), _height, opts);
 		}
 	protected:
-		Atlas<MAX_HEIGHT>* _atlas;
+		void* _atlas;
 		rows_type _rows;
 		int _height;
 
