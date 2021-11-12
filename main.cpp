@@ -22,10 +22,9 @@ int main () {
 	using namespace Chomp;
 	Chomp::PositionFormatOptions::set_default("austere");
 
-	const int dim = 100;
+	const int dim = 130;
 
-	Chomp::Atlas<dim, HashingStrategy::DIMS_ONLY> atlas;
-	using Position = Chomp::Atlas<dim>::Position;
+	Chomp::Atlas<dim, HashingStrategy::DIMS_ONLY, StoredPositionInfo::WINNING_ONLY> atlas;
 
 	//atlas.hash_positions(0, 4);
 
@@ -33,6 +32,6 @@ int main () {
 	// (width, height, square count)
 
 	std::cout << time_function([&] {
-		atlas.hash_positions(1, dim, dim, dim, 8);
+		atlas.hash_positions(1, dim, dim, dim, 12);
 	});
 }

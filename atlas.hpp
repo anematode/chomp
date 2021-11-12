@@ -24,7 +24,7 @@ namespace Chomp {
 	 * Summary of the result of some computation
 	 */
 	struct ProcessResult {
-		int losing_positions = -1;
+		p_count_type losing_positions = -1;
 	};
 
 	/**
@@ -35,15 +35,24 @@ namespace Chomp {
 		DIMS_ONLY
 	};
 
+	enum class StoredPositionInfo {
+		WINNING_ONLY, // memory optimization to use a set instead of a map
+		DTE
+	};
+
 	// Stores a set of positions. Generally an atlas will have all positions in a rectangle or all positions with a given
 	// square count or less. Note that the atlas may not necessarily store all the positions; for space efficiency, the
 	// losing positions may sometimes only be stored
-	template<int MAX_HEIGHT, HashingStrategy HASHING_STRATEGY=HashingStrategy::DIMS_SQUARE_COUNT>
+	template<int MAX_HEIGHT,
+					HashingStrategy HASHING_STRATEGY=HashingStrategy::DIMS_SQUARE_COUNT,
+					StoredPositionInfo STORED_POSITION_INFO=StoredPositionInfo::WINNING_ONLY>
 	class Atlas final : public BaseAtlas<MAX_HEIGHT> {
 		using Base = BaseAtlas<MAX_HEIGHT>;
 	public:
 		using typename Base::Position; // allow us to use Position
-		using hash_map = phmap::parallel_flat_hash_map<hash_type, PositionInfo>;
+		// Use a set if permissible
+		using hash_map = std::conditional_t<STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY,
+		  phmap::parallel_flat_hash_set<hash_type>, phmap::parallel_flat_hash_map<hash_type, PositionInfo>>;
 
 		using Base::is_position_known;
 		using Base::get_position_info;
@@ -60,12 +69,20 @@ namespace Chomp {
 			auto map = get_hash_map_if_exists(p);
 			if (map == nullptr) return { .is_winning = WINNING::UNKNOWN };
 
-			auto iterator = map->find(p.canonical_hash());
-
-			if (iterator == map->end()) {
-				return { .is_winning = WINNING::YES };
+			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY) {
+				if (map->contains(p.canonical_hash())) {
+					return { .is_winning = WINNING::NO };
+				} else {
+					return { .is_winning = WINNING::YES };
+				}
 			} else {
-				return iterator->second;
+				auto iterator = map->find(p.canonical_hash());
+
+				if (iterator == map->end()) {
+					return {.is_winning = WINNING::YES, .distance_to_end = -1};
+				} else {
+					return iterator->second;
+				}
 			}
 		}
 
@@ -152,9 +169,16 @@ namespace Chomp {
 
 		// A position is found at the vector index in the data, then at the position corresponding to its square count
 		virtual void store_position_info(Position &p, PositionInfo info) {
-			auto& map = *get_hash_map(p);
+			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY) {
+				if (info.is_winning == WINNING::NO) {
+					// Set
+					get_hash_map(p)->insert(p.canonical_hash());
+				}
+			} else {
+				auto &map = *get_hash_map(p);
 
-			map[p.canonical_hash()] = info;
+				map[p.canonical_hash()] = info;
+			}
 		}
 
 		void hash_positions (int min_squares, int max_squares, int bound_width=-1, int bound_height=-1, size_t num_threads=1) {
@@ -165,7 +189,7 @@ namespace Chomp {
 			const int POSITION_BATCH_SIZE = 1000000;
 			const int MULTITHREAD_THRESHOLD = 10000;
 
-			int losing_positions = 0;
+			p_count_type losing_positions = 0;
 
 			// Atlases for each thread
 			std::vector<std::unique_ptr<Atlas>> thread_atlases;
@@ -255,11 +279,11 @@ namespace Chomp {
 							auto map = p->at(i);
 							if (map == nullptr) continue;
 
-							// Merge map
+							// Merge map (or set)
 							get_hash_map_at_location({dim_index, i})->merge(*map);
 						}
 					} else {
-						// Merge map
+						// Merge map (or set)
 						get_hash_map_at_location(dim_index)->merge(*p);
 					}
 				}
@@ -306,7 +330,7 @@ namespace Chomp {
 
 		using position_iterator = typename std::vector<Position>::iterator;
 		ProcessResult hash_positions_over_iterator(position_iterator begin, position_iterator end, const Atlas& reference_atlas) {
-			int losing_positions = 0;
+			p_count_type losing_positions = 0;
 
 			for (auto it = begin; it != end; ++it) {
 				Position& p = *it;
@@ -314,8 +338,8 @@ namespace Chomp {
 				bool is_winning = false;
 				int multiplicity = p.multiplicity();
 
-				p.get_potentially_winning_cuts([&] (Cut c) {
-					Position cutted = p.cut(c);
+				p.get_potentially_winning_cuts([&] (int row, int col) {
+					Position cutted = p.cut(row, col);
 
 					WINNING is_cutted_winning = reference_atlas.get_position_info(cutted).is_winning;
 
@@ -330,7 +354,6 @@ namespace Chomp {
 				int max_dte = 0;
 
 				if (!is_winning) {
-					//std::cout << p.list() << '\n';
 					store_position_info(p, { .is_winning = WINNING::NO, .distance_to_end = max_dte });
 					losing_positions += multiplicity;
 				}

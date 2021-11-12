@@ -150,7 +150,8 @@ namespace Chomp {
 	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 
 	enum class HashingStrategy;
-	template<int MAX_HEIGHT, HashingStrategy HASHING_STRATEGY>
+	enum class StoredPositionInfo;
+	template<int MAX_HEIGHT, HashingStrategy HASHING_STRATEGY, StoredPositionInfo>
 	class Atlas; // forward declaration
 
 	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
@@ -353,7 +354,7 @@ namespace Chomp {
 		 * @return True if the callback function terminated early
 		 */
 		template <CutOrder order=CutOrder::DECREASING, typename Lambda>
-		bool get_cuts(Lambda callback) const {
+		inline bool get_cuts(Lambda callback) const {
 			// Should be aggressively inlined... :)
 			auto invoke = wrap_cut_callback(callback);
 
@@ -439,6 +440,26 @@ namespace Chomp {
 			}
 
 			return false;
+		}
+
+		template <CutOrder order=CutOrder::DECREASING, typename Lambda>
+		inline bool get_cutted_positions(Lambda callback) {
+			get_cuts<order>([&] (int row, int col) {
+				BasePosition p = cut(row, col);
+
+				callback(p);
+			});
+		}
+
+		template <typename Lambda>
+		bool get_potentially_losing_cutted_positions(Lambda callback) {
+			BasePosition p;
+
+			get_cuts<CutOrder::POTENTIALLY_WINNING>([&] (int row, int col) {
+				p = cut(row, col);
+
+				callback(p);
+			});
 		}
 
 		template <typename Lambda>
@@ -630,6 +651,7 @@ namespace Chomp {
 
 				if (remaining == 0) { // If we've placed all tiles, set the height appropriately, callback
 					p._height = (current == 0) ? i : (i + 1);
+					p._square_count = n;
 
 					if (!only_canonical || p.is_canonical()) {
 						if (invoke(p, id / total)) return true;
