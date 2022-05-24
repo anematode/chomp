@@ -12,8 +12,16 @@
 namespace Chomp {
 	/**
 	 * HASHING
+	 * 10,000,000th prime: 179424673
+	 * 10,000,001th prime: 179424691
 	 */
-	const uint64_t HASH_PRIME = 179424673;
+	const uint64_t HASH_PRIME = 179424691;
+
+	// # -> 1
+	// ## -> 2
+	// ##### -> 5
+
+	// 2^64
 
 	hash_type hash_position(const int* rows, int height) {
 		hash_type hash = 0;

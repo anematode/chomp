@@ -5,6 +5,7 @@
 #include "parallel_hashmap/phmap.h"
 #include <memory>
 #include <thread>
+#include <optional>
 
 namespace Chomp {
 	/**
@@ -24,7 +25,12 @@ namespace Chomp {
 	 * Summary of the result of some computation
 	 */
 	struct ProcessResult {
-		p_count_type losing_positions = -1;
+		p_count_type positions; // how many positions were processed
+		std::optional<p_count_type> losing_positions; // among processed positions, how many are losing
+		std::optional<p_count_type> winning_positions; // can be used to verify results
+		std::optional<p_count_type> winning_cuts;
+		std::optional<p_count_type> sum_dte; // sum of distance to end among all positions
+		std::optional<p_count_type> sum_losing_dte; // only losing
 	};
 
 	/**
@@ -35,23 +41,27 @@ namespace Chomp {
 		DIMS_ONLY
 	};
 
-	enum class StoredPositionInfo {
-		WINNING_ONLY, // memory optimization to use a set instead of a map
-		DTE
-	};
+	namespace StoredPositionInfoNS {
+		enum StoredPositionInfo : uint32_t {
+			WINNING = 1 << 0,
+			DTE = 1 << 1
+		};
+	}
+
+	using StoredPositionInfo = StoredPositionInfoNS::StoredPositionInfo;
 
 	// Stores a set of positions. Generally an atlas will have all positions in a rectangle or all positions with a given
 	// square count or less. Note that the atlas may not necessarily store all the positions; for space efficiency, the
 	// losing positions may sometimes only be stored
 	template<int MAX_HEIGHT,
 					HashingStrategy HASHING_STRATEGY=HashingStrategy::DIMS_SQUARE_COUNT,
-					StoredPositionInfo STORED_POSITION_INFO=StoredPositionInfo::WINNING_ONLY>
+					StoredPositionInfo STORED_POSITION_INFO=StoredPositionInfo::WINNING>
 	class Atlas final : public BaseAtlas<MAX_HEIGHT> {
 		using Base = BaseAtlas<MAX_HEIGHT>;
 	public:
 		using typename Base::Position; // allow us to use Position
 		// Use a set if permissible
-		using hash_map = std::conditional_t<STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY,
+		using hash_map = std::conditional_t<STORED_POSITION_INFO == StoredPositionInfo::WINNING,
 		  phmap::parallel_flat_hash_set<hash_type>, phmap::parallel_flat_hash_map<hash_type, PositionInfo>>;
 
 		using Base::is_position_known;
@@ -69,7 +79,7 @@ namespace Chomp {
 			auto map = get_hash_map_if_exists(p);
 			if (map == nullptr) return { .is_winning = WINNING::UNKNOWN };
 
-			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY) {
+			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING) {
 				if (map->contains(p.canonical_hash())) {
 					return { .is_winning = WINNING::NO };
 				} else {
@@ -169,7 +179,7 @@ namespace Chomp {
 
 		// A position is found at the vector index in the data, then at the position corresponding to its square count
 		virtual void store_position_info(Position &p, PositionInfo info) {
-			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING_ONLY) {
+			if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING) {
 				if (info.is_winning == WINNING::NO) {
 					// Set
 					get_hash_map(p)->insert(p.canonical_hash());
@@ -243,7 +253,7 @@ namespace Chomp {
 
 				// Add results
 				for (int i = 0; i < actual_threads; ++i) {
-					losing_positions += results[i].losing_positions;
+					losing_positions += results[i].losing_positions.value();
 				}
 
 				positions.clear();
@@ -290,6 +300,32 @@ namespace Chomp {
 			}
 		}
 
+		// Get distnace to end of a given position
+		int get_distance_to_end(Position &p, PositionInfo info={}) {
+			if (info.distance_to_end != -1) return info.distance_to_end;
+			if constexpr (!(STORED_POSITION_INFO & StoredPositionInfo::DTE)) throw std::runtime_error("Distance to end information not available");
+
+			switch (info.is_winning) {
+				case WINNING::YES:
+					//
+				case WINNING::NO:
+
+				case WINNING::UNKNOWN:
+			}
+
+		}
+
+		// Iterate over all known positions
+		template <typename Lambda>
+		bool for_each_position(Lambda callback) {
+
+		}
+
+		template <typename Lambda>
+		bool for_each_losing_position(Lambda callback) {
+
+		}
+
 		// Empty an atlas
 		void clear () {
 			for (auto p : data) {
@@ -327,6 +363,7 @@ namespace Chomp {
 		using Base::mark_positions_as_computed;
 
 		storage_type data;
+		const static bool storing_dte = STORED_POSITION_INFO & StoredPositionInfo::DTE;
 
 		using position_iterator = typename std::vector<Position>::iterator;
 		ProcessResult hash_positions_over_iterator(position_iterator begin, position_iterator end, const Atlas& reference_atlas) {
@@ -338,23 +375,46 @@ namespace Chomp {
 				bool is_winning = false;
 				int multiplicity = p.multiplicity();
 
+				int min_winning_dte=INT_MAX, max_losing_dte=-1;
+
 				p.get_potentially_winning_cuts([&] (int row, int col) {
 					Position cutted = p.cut(row, col);
+					PositionInfo info = reference_atlas.get_position_info(cutted);
 
-					WINNING is_cutted_winning = reference_atlas.get_position_info(cutted).is_winning;
+					WINNING is_cutted_winning = info.is_winning;
+					int dte = info.distance_to_end;
 
 					if (is_cutted_winning == WINNING::NO) {
 						is_winning = true;
-						return true;
+						// ascertained that it's winning, return immediately
+						if constexpr (STORED_POSITION_INFO == StoredPositionInfo::WINNING)
+							return true;
+
+						// Maximum distance to end assuming optimal play
+						if constexpr (storing_dte) {
+							min_winning_dte = std::min(dte, min_winning_dte);
+						}
 					}
 
 					return false;
 				});
 
-				int max_dte = 0;
+				if (!is_winning && max_losing_dte == -1) {
+					// Might happen when n
+					p.get_cuts([&] (int row, int col) {
+						Position cutted = p.cut(row, col);
+						PositionInfo info = reference_atlas.get_position_info(cutted);
+
+					})
+				}
+
+				if constexpr (STORED_POSITION_INFO & StoredPositionInfo::DTE) {
+					max_losing_dte = std::max(reference_atlas.get_distance_to_end(cutted, info), max_losing_dte);
+				}
+
 
 				if (!is_winning) {
-					store_position_info(p, { .is_winning = WINNING::NO, .distance_to_end = max_dte });
+					store_position_info(p, { .is_winning = WINNING::NO, .distance_to_end  });
 					losing_positions += multiplicity;
 				}
 			}

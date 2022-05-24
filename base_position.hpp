@@ -149,11 +149,6 @@ namespace Chomp {
 	// A value of -1 in any of the last three positions indicates it should be unbounded
 	p_count_type count_positions(int min_squares=0, int max_squares=-1, int bound_width=-1, int bound_height=-1);
 
-	enum class HashingStrategy;
-	enum class StoredPositionInfo;
-	template<int MAX_HEIGHT, HashingStrategy HASHING_STRATEGY, StoredPositionInfo>
-	class Atlas; // forward declaration
-
 	// Represents an arbitrary position with height up to MAX_HEIGHT. We store a position as a list of rows and a height
 	// variable. The empty position has a height of 0. We must always have rows[0] be a valid number, since it is used for
 	// the width; the empty position causes some annoyances here.
@@ -170,14 +165,14 @@ namespace Chomp {
 
 		// We only need to copy the first "height" rows, but at least 1, if it's the empty position
 		BasePosition(const BasePosition& p) : _height(p._height), _orientation(p._orientation),
-			_square_count(p._square_count), _atlas(p._atlas), _canonical_hash(p._canonical_hash) {
+			_square_count(p._square_count), _canonical_hash(p._canonical_hash) {
 			
 			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 		}
 
 		BasePosition& operator=(const BasePosition& p) {
 			_height = p._height, _orientation = p._orientation, _square_count = p._square_count;
-			_canonical_hash = p._canonical_hash, _atlas = p._atlas;
+			_canonical_hash = p._canonical_hash;
 			std::copy_n(std::begin(p._rows), _height + 1, std::begin(_rows));
 
 			return *this;
@@ -324,7 +319,7 @@ namespace Chomp {
 		}
 
 		// Number of tiles in a given column
-		int col_count(int col) const {
+		int col_height(int col) const noexcept {
 			for (int i = _height - 1; i >= 0; --i) {
 				int row = _rows[i];
 
@@ -335,6 +330,18 @@ namespace Chomp {
 			}
 
 			return 0;
+		}
+
+		// Number of columns with the given height
+		// Example:
+		// ####
+		// ######<--6->
+		// ############
+		// col_count(1) -> 6, col_count(3) -> 4
+		int col_count(int height) const noexcept {
+			if (height == 0 || height > _height) return 0;
+			// Difference between consecutive rows
+			return _rows[height-1] - ((height == _height) ? 0 : _rows[height]);
 		}
 
 		template <CutOrder order=CutOrder::DECREASING>
@@ -379,7 +386,7 @@ namespace Chomp {
 					return invoke(0, r2 + 1);
 				} else if (width == 2) {
 					// Reflection of the above case
-					int c1 = _height - 1, c2 = col_count(1);
+					int c1 = _height - 1, c2 = col_height(1);
 
 					if (c2 == c1 - 1) return false;
 					if (c1 == c2) return invoke(c2 - 1, 1);
@@ -403,7 +410,7 @@ namespace Chomp {
 				// Handle first row. We never call (0,0) or (0,1) because they are losing.
 
 				// Handle (0,2)
-				if (_height - 1 == col_count(1) && invoke(0, 2)) return true;
+				if (_height - 1 == col_height(1) && invoke(0, 2)) return true;
 				// Rest of first row
 				for (int col = 3; col < width; ++col) {
 					if (col != excl_col && invoke(0, col)) return true;
@@ -440,26 +447,6 @@ namespace Chomp {
 			}
 
 			return false;
-		}
-
-		template <CutOrder order=CutOrder::DECREASING, typename Lambda>
-		inline bool get_cutted_positions(Lambda callback) {
-			get_cuts<order>([&] (int row, int col) {
-				BasePosition p = cut(row, col);
-
-				callback(p);
-			});
-		}
-
-		template <typename Lambda>
-		bool get_potentially_losing_cutted_positions(Lambda callback) {
-			BasePosition p;
-
-			get_cuts<CutOrder::POTENTIALLY_WINNING>([&] (int row, int col) {
-				p = cut(row, col);
-
-				callback(p);
-			});
 		}
 
 		template <typename Lambda>
@@ -677,7 +664,6 @@ namespace Chomp {
 			return _position_to_string(std::begin(_rows), _height, opts);
 		}
 	protected:
-		void* _atlas;
 		rows_type _rows;
 		int _height;
 
